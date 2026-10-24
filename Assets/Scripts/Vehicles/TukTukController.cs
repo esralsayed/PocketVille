@@ -54,6 +54,7 @@ public class TukTukController : MonoBehaviour
     [SerializeField] float uprightDamping = 3.5f;
 
     Rigidbody body;
+    TukTukFuelSystem fuel;
     InputActionMap actions;
     InputAction moveAction;
     InputAction handbrakeAction;
@@ -69,6 +70,7 @@ public class TukTukController : MonoBehaviour
     {
         body = GetComponent<Rigidbody>();
         body.centerOfMass = centerOfMass;
+        fuel = GetComponent<TukTukFuelSystem>();
         // Ground friction was cancelling the small speed added each physics
         // step, so the tuk-tuk never left its spot. Grip is applied below.
         ApplyDriveSurface();
@@ -196,10 +198,11 @@ public class TukTukController : MonoBehaviour
         Vector3 flatVelocity = Vector3.ProjectOnPlane(velocity, Vector3.up);
         float forwardSpeed = Vector3.Dot(flatVelocity, forward);
         float sideSpeed = Vector3.Dot(flatVelocity, right);
+        bool canPropel = fuel == null || fuel.HasFuel;
 
         float targetSpeed;
         float speedChangeRate;
-        GetLongitudinalTarget(throttle, handbrake, forwardSpeed, out targetSpeed, out speedChangeRate);
+        GetLongitudinalTarget(throttle, handbrake, forwardSpeed, canPropel, out targetSpeed, out speedChangeRate);
 
         float deltaTime = Time.fixedDeltaTime;
         float newForwardSpeed = Mathf.MoveTowards(forwardSpeed, targetSpeed, speedChangeRate * deltaTime);
@@ -209,12 +212,24 @@ public class TukTukController : MonoBehaviour
         Vector3 flatVelocityAfter = forward * newForwardSpeed + right * newSideSpeed;
         Vector3 velocityAfter = new Vector3(flatVelocityAfter.x, velocity.y, flatVelocityAfter.z);
         body.linearVelocity = velocityAfter;
+        if (fuel != null && IsEnginePropelling(throttle, handbrake, forwardSpeed, canPropel))
+            fuel.ConsumePropulsion(throttle, flatVelocity.magnitude, deltaTime);
 
         ApplySteering(steer, newForwardSpeed, deltaTime);
         ApplyUprightTorque();
     }
 
-    void GetLongitudinalTarget(float throttle, bool handbrake, float forwardSpeed, out float targetSpeed, out float speedChangeRate)
+    bool IsEnginePropelling(float throttle, bool handbrake, float forwardSpeed, bool canPropel)
+    {
+        if (handbrake || !canPropel)
+            return false;
+        if (throttle > 0.01f)
+            return true;
+
+        return throttle < -0.01f && forwardSpeed <= minimumSteerSpeed;
+    }
+
+    void GetLongitudinalTarget(float throttle, bool handbrake, float forwardSpeed, bool canPropel, out float targetSpeed, out float speedChangeRate)
     {
         if (handbrake)
         {
@@ -225,6 +240,13 @@ public class TukTukController : MonoBehaviour
 
         if (throttle > 0.01f)
         {
+            if (!canPropel)
+            {
+                targetSpeed = 0f;
+                speedChangeRate = coastDeceleration;
+                return;
+            }
+
             targetSpeed = maxForwardSpeed * throttle;
             bool opposing = forwardSpeed < -0.2f || forwardSpeed > targetSpeed;
             speedChangeRate = opposing ? brakeDeceleration : acceleration;
@@ -237,6 +259,13 @@ public class TukTukController : MonoBehaviour
             {
                 targetSpeed = 0f;
                 speedChangeRate = brakeDeceleration;
+                return;
+            }
+
+            if (!canPropel)
+            {
+                targetSpeed = 0f;
+                speedChangeRate = coastDeceleration;
                 return;
             }
 
