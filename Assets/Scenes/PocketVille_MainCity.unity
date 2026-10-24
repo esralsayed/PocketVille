@@ -281325,12 +281325,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1453516286}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.70710677, y: 0.00000011920929, z: -0.00000020861626, w: 0.7071068}
-  m_LocalPosition: {x: -0.0063686953, y: 0.0131034255, z: 0.9725113}
+  m_LocalRotation: {x: -0.000000059604645, y: -0.000000063220284, z: -0.00000023180769, w: 1}
+  m_LocalPosition: {x: -0.0063686953, y: 0.9725114, z: -0.013103545}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 1707982952}
+  m_Father: {fileID: 1707982953}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1453548463
 PrefabInstance:
@@ -333666,7 +333666,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects:
-    - targetCorrespondingSourceObject: {fileID: 2774220344278030320, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
+    - targetCorrespondingSourceObject: {fileID: 6569145876919134859, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1453516287}
     m_AddedComponents:
@@ -333676,6 +333676,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8978103523514716507, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1707982950}
+    - targetCorrespondingSourceObject: {fileID: 8978103523514716507, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1707982954}
   m_SourcePrefab: {fileID: -5645937942226959685, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
 --- !u!1 &1707982949 stripped
 GameObject:
@@ -333735,6 +333738,37 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 2774220344278030320, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
   m_PrefabInstance: {fileID: 1707982948}
   m_PrefabAsset: {fileID: 0}
+--- !u!4 &1707982953 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 6569145876919134859, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
+  m_PrefabInstance: {fileID: 1707982948}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1707982954
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1707982949}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0c2053bcc1f49d54b9ec13ec403a1978, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  maxForwardSpeed: 12
+  maxReverseSpeed: 4.5
+  acceleration: 8
+  brakeDeceleration: 18
+  coastDeceleration: 4
+  handbrakeDeceleration: 36
+  steerSpeed: 85
+  steerResponse: 180
+  steerFullSpeed: 3.5
+  minimumSteerSpeed: 0.6
+  lateralGrip: 14
+  centerOfMass: {x: 0, y: 0.35, z: -0.15}
+  uprightStrength: 10
+  uprightDamping: 3.5
 --- !u!1 &1708213355
 GameObject:
   m_ObjectHideFlags: 0
