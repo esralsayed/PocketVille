@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
@@ -13,6 +14,10 @@ public class PlayerProfileData
 
     // Player economy.
     public int money;
+
+    // Rickshaw skins bought in the item shop (skin ids) and the one currently equipped.
+    public List<string> ownedSkins = new List<string>();
+    public string equippedSkin = "";
 
     // Player progress.
     public string currentProfession;
@@ -31,7 +36,7 @@ public class PlayerProfileData
 
         profileName = name;
 
-        money = 500;
+        money = 50; // new profiles start with 50 coins
 
         currentProfession = "Unemployed";
 

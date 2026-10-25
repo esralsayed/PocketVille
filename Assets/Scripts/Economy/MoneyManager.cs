@@ -1,13 +1,14 @@
 
 using System;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class MoneyManager : MonoBehaviour
 {
     public static MoneyManager Instance { get; private set; }
 
     [Header("Economy Settings")]
-    [SerializeField] private int startingMoney = 500;
+    [SerializeField] private int startingMoney = 50;
 
     public int CurrentMoney { get; private set; }
 
@@ -27,7 +28,41 @@ public class MoneyManager : MonoBehaviour
         // Keep the manager when changing scenes.
         DontDestroyOnLoad(gameObject);
 
-        CurrentMoney = Mathf.Max(0, startingMoney);
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        LoadFromActiveProfile();
+    }
+
+    // Money lives in the active save profile (so the Main Menu item shop and the city share one balance).
+    // With no active profile (e.g. playing the city scene directly) it falls back to startingMoney.
+    private void LoadFromActiveProfile()
+    {
+        ProfileManager pm = ProfileManager.Instance;
+        if (pm != null && pm.ActiveProfile != null)
+            CurrentMoney = Mathf.Max(0, pm.ActiveProfile.money);
+        else
+            CurrentMoney = Mathf.Max(0, startingMoney);
+    }
+
+    private void SaveToActiveProfile()
+    {
+        ProfileManager pm = ProfileManager.Instance;
+        if (pm == null || pm.ActiveProfile == null)
+            return;
+
+        pm.ActiveProfile.money = CurrentMoney;
+        pm.SaveActiveProfile();
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        LoadFromActiveProfile();
+        OnMoneyChanged?.Invoke(CurrentMoney);
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+            SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
     public void AddMoney(int amount)
@@ -47,6 +82,7 @@ public class MoneyManager : MonoBehaviour
         CurrentMoney += amount;
 
         OnMoneyChanged?.Invoke(CurrentMoney);
+        SaveToActiveProfile();
 
         Debug.Log("Money earned: $" + amount +
                   " | Balance: $" + CurrentMoney);
@@ -69,6 +105,7 @@ public class MoneyManager : MonoBehaviour
         CurrentMoney -= amount;
 
         OnMoneyChanged?.Invoke(CurrentMoney);
+        SaveToActiveProfile();
 
         Debug.Log("Money spent: $" + amount +
                   " | Balance: $" + CurrentMoney);
