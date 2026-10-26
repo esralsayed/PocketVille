@@ -5,6 +5,11 @@ using UnityEngine.UI;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 using TMPro;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.Events;
+using UnityEditor.SceneManagement;
+#endif
 
 /// <summary>
 /// Shared skin catalog + recolor helper. Used by the Main Menu item shop AND by the city scene
@@ -178,22 +183,38 @@ public class RickshawSkinShop : MonoBehaviour
         public RickshawSkins.Skin skin;
         public Image frame;
         public Text status;
+        public Button button;
     }
 
+    [System.Serializable]
+    public class CardView
+    {
+        public Image frame;
+        public Text status;
+        public Button button;
+    }
+
+    // ---- UI references. When these are empty the shop builds itself in code at runtime (fallback).
+    // "Bake Shop Into Scene" fills them in and creates the real objects, which you can then edit freely. ----
+    [Header("Shop UI (filled by 'Bake Shop Into Scene')")]
+    [SerializeField] Canvas shopCanvas;
+    [SerializeField] GameObject shopRoot, openButton;
+    [SerializeField] Text balanceText, messageText, actionText, selectedName;
+    [SerializeField] Button actionButton, closeButton;
+    [SerializeField] Image actionImage;
+    [SerializeField] CardView[] cardViews;
+
+    [Header("3D preview (filled by 'Bake Shop Into Scene')")]
+    [SerializeField] RenderTexture previewRT;
+    [SerializeField] Camera previewCam;
+    [SerializeField] GameObject previewModel;
+
     Font font;
-    GameObject shopRoot, openButton;
-    Text balanceText, messageText, actionText, selectedName;
-    Button actionButton;
-    Image actionImage;
     readonly List<Card> cards = new List<Card>();
-
-    RenderTexture previewRT;
-    Camera previewCam;
-    GameObject previewModel;
     Vector3 modelCenter;
-
     int selected;
     bool open;
+    bool baking, usingBaked;
 
     // ---------- profile menu ----------
     // The CREATE PROFILE / PLAY buttons in the profile screen are painted into the panel artwork and have no
@@ -415,8 +436,18 @@ public class RickshawSkinShop : MonoBehaviour
     void Start()
     {
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        BuildPreview();
-        BuildUi();
+
+        // If the shop was baked into the scene it already exists as real objects; otherwise build it now.
+        usingBaked = IsBaked();
+        if (usingBaked)
+        {
+            SetupBaked();
+        }
+        else
+        {
+            BuildPreview();
+            BuildUi();
+        }
         shopRoot.SetActive(false);
 
         // coming back from the in-game pause menu with "ITEM SHOP": open the shop right away
@@ -427,9 +458,52 @@ public class RickshawSkinShop : MonoBehaviour
         }
     }
 
+    bool IsBaked()
+    {
+        return shopCanvas != null && shopRoot != null && openButton != null && actionButton != null
+            && closeButton != null && previewCam != null && previewRT != null
+            && cardViews != null && cardViews.Length == RickshawSkins.All.Length;
+    }
+
+    // The shop already exists in the scene: only hook up the code-side lists.
+    void SetupBaked()
+    {
+        cards.Clear();
+        for (int i = 0; i < cardViews.Length; i++)
+        {
+            Card c = new Card();
+            c.skin = RickshawSkins.All[i];
+            c.frame = cardViews[i].frame;
+            c.status = cardViews[i].status;
+            c.button = cardViews[i].button;
+            cards.Add(c);
+        }
+
+        if (previewModel != null)
+        {
+            Bounds b = new Bounds(previewModel.transform.position, Vector3.zero);
+            bool any = false;
+            foreach (Renderer r in previewModel.GetComponentsInChildren<Renderer>())
+            {
+                if (!any) { b = r.bounds; any = true; }
+                else b.Encapsulate(r.bounds);
+            }
+            modelCenter = b.center;
+        }
+        previewCam.enabled = false;
+
+        // the profile-screen click areas are still created at runtime; keep them underneath the shop screen
+        BuildProfileMenu(shopCanvas.transform);
+        foreach (string objName in new[] { "ProfileHitAreas", "ActiveProfile", "ProfileMessage" })
+        {
+            Transform t = shopCanvas.transform.Find(objName);
+            if (t != null) t.SetAsFirstSibling();
+        }
+    }
+
     void OnDestroy()
     {
-        if (previewRT != null) previewRT.Release();
+        if (!usingBaked && previewRT != null) previewRT.Release();
     }
 
     void Update()
@@ -452,7 +526,7 @@ public class RickshawSkinShop : MonoBehaviour
         root.transform.SetParent(transform, false);
         root.transform.position = new Vector3(5000f, 5000f, 5000f);
 
-        previewRT = new RenderTexture(1024, 1024, 24, RenderTextureFormat.ARGB32);
+        if (previewRT == null) previewRT = new RenderTexture(1024, 1024, 24, RenderTextureFormat.ARGB32);
 
         GameObject camObj = new GameObject("PreviewCamera");
         camObj.transform.SetParent(root.transform, false);
@@ -505,6 +579,7 @@ public class RickshawSkinShop : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
         canvasObj.AddComponent<GraphicRaycaster>();
+        shopCanvas = canvas;
 
         // floating button that opens the shop
         RectTransform openRt = MakeRect(canvasObj.transform, "OpenShopButton", new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(300f, 84f));
@@ -516,7 +591,7 @@ public class RickshawSkinShop : MonoBehaviour
         MakeText(openRt, "ITEM SHOP", 36, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.1f, 0.1f, 0.1f, 1f));
         openButton = openRt.gameObject;
 
-        BuildProfileMenu(canvasObj.transform);
+        if (!baking) BuildProfileMenu(canvasObj.transform);
 
         // shop screen
         RectTransform rootRt = MakeRect(canvasObj.transform, "ShopRoot", new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(4000f, 3000f));
@@ -561,6 +636,7 @@ public class RickshawSkinShop : MonoBehaviour
         Button closeBtn = closeRt.gameObject.AddComponent<Button>();
         closeBtn.targetGraphic = closeImg;
         closeBtn.onClick.AddListener(CloseShop);
+        closeButton = closeBtn;
         MakeText(closeRt, "BACK  (Esc)", 32, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
 
         RectTransform msgRt = MakeRect(rootRt, "Message", new Vector2(0.5f, 0.5f), new Vector2(500f, -455f), new Vector2(760f, 60f));
@@ -593,6 +669,7 @@ public class RickshawSkinShop : MonoBehaviour
         card.skin = skin;
         card.frame = frame;
         card.status = status;
+        card.button = btn;
         cards.Add(card);
     }
 
@@ -635,7 +712,7 @@ public class RickshawSkinShop : MonoBehaviour
 
     // ---------- behaviour ----------
 
-    void OpenShop()
+    public void OpenShop()
     {
         open = true;
         shopRoot.SetActive(true);
@@ -654,7 +731,7 @@ public class RickshawSkinShop : MonoBehaviour
         Refresh();
     }
 
-    void CloseShop()
+    public void CloseShop()
     {
         open = false;
         shopRoot.SetActive(false);
@@ -662,7 +739,7 @@ public class RickshawSkinShop : MonoBehaviour
         if (previewCam != null) previewCam.enabled = false;
     }
 
-    void SelectCard(int index)
+    public void SelectCard(int index)
     {
         selected = index;
         messageText.text = "";
@@ -734,7 +811,7 @@ public class RickshawSkinShop : MonoBehaviour
         actionButton.interactable = interactable;
     }
 
-    void OnAction()
+    public void OnAction()
     {
         PlayerProfileData p = Profile;
         if (p == null) return;
@@ -761,4 +838,80 @@ public class RickshawSkinShop : MonoBehaviour
         if (slotsUi != null) slotsUi.RefreshUI(); // keeps the money shown on the profile cards up to date
         Refresh();
     }
+
+#if UNITY_EDITOR
+    // Right-click this component's header > "Bake Shop Into Scene" to turn the runtime-built shop into real,
+    // saved scene objects that you can move, resize and recolor in the Hierarchy / Inspector.
+    // Run it again at any time to rebuild everything from the code defaults.
+    [ContextMenu("Bake Shop Into Scene")]
+    public void BakeIntoScene()
+    {
+        if (Application.isPlaying) { Debug.LogWarning("RickshawSkinShop: stop Play mode before baking."); return; }
+        if (rickshawModelPrefab == null) { Debug.LogError("RickshawSkinShop: assign 'Rickshaw Model Prefab' first."); return; }
+
+        foreach (string childName in new[] { "ItemShopCanvas", "SkinShopPreview" })
+        {
+            Transform old = transform.Find(childName);
+            if (old != null) DestroyImmediate(old.gameObject);
+        }
+
+        font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        // the texture the preview camera draws into becomes a real asset
+        if (!AssetDatabase.IsValidFolder("Assets/Arts/UI"))
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Arts")) AssetDatabase.CreateFolder("Assets", "Arts");
+            AssetDatabase.CreateFolder("Assets/Arts", "UI");
+        }
+        const string rtPath = "Assets/Arts/UI/SkinShopPreview.renderTexture";
+        RenderTexture rt = AssetDatabase.LoadAssetAtPath<RenderTexture>(rtPath);
+        if (rt == null)
+        {
+            rt = new RenderTexture(1024, 1024, 24, RenderTextureFormat.ARGB32);
+            AssetDatabase.CreateAsset(rt, rtPath);
+            AssetDatabase.SaveAssets();
+        }
+        previewRT = rt;
+
+        cards.Clear();
+        previewModel = null;
+        previewCam = null;
+        baking = true;
+        BuildPreview();
+        BuildUi();
+        baking = false;
+
+        cardViews = new CardView[cards.Count];
+        for (int i = 0; i < cards.Count; i++)
+        {
+            CardView view = new CardView();
+            view.frame = cards[i].frame;
+            view.status = cards[i].status;
+            view.button = cards[i].button;
+            cardViews[i] = view;
+        }
+
+        // click handlers that are saved in the scene (visible in each Button's "On Click" list)
+        WirePersistent(openButton.GetComponent<Button>(), OpenShop);
+        WirePersistent(closeButton, CloseShop);
+        WirePersistent(actionButton, OnAction);
+        for (int i = 0; i < cards.Count; i++)
+        {
+            Button b = cards[i].button;
+            b.onClick.RemoveAllListeners();
+            UnityEventTools.AddIntPersistentListener(b.onClick, SelectCard, i);
+        }
+
+        shopRoot.SetActive(false); // saved hidden, exactly like at runtime (tick it in the Inspector to edit it)
+        EditorUtility.SetDirty(this);
+        EditorSceneManager.MarkSceneDirty(gameObject.scene);
+        Debug.Log("RickshawSkinShop: the shop is now real objects under '" + name + "'. Save the scene (Ctrl+S).");
+    }
+
+    static void WirePersistent(Button b, UnityAction action)
+    {
+        b.onClick.RemoveAllListeners();
+        UnityEventTools.AddPersistentListener(b.onClick, action);
+    }
+#endif
 }
