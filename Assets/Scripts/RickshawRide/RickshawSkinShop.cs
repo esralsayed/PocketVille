@@ -26,22 +26,24 @@ public static class RickshawSkins
         public float hue;      // target hue 0..1, or -1 = original colours
         public int price;
         public Color swatch;
+        public int unlockLevel; // level that unlocks buying it, 0 = open from the start, ComingSoon = no level yet
     }
 
     public const int SkinPrice = 100;
+    public const int ComingSoon = -1;
 
     // set by the in-game pause menu so the Main Menu opens the shop immediately
     public static bool OpenShopOnLoad;
 
     public static readonly Skin[] All =
     {
-        Make("classic", "Classic Yellow", -1f,   0,         new Color(0.96f, 0.77f, 0.10f)),
-        Make("red",     "Ruby Red",       0.00f, SkinPrice, Color.HSVToRGB(0.00f, 0.85f, 0.90f)),
-        Make("orange",  "Sunset Orange",  0.07f, SkinPrice, Color.HSVToRGB(0.07f, 0.90f, 0.95f)),
-        Make("green",   "Forest Green",   0.33f, SkinPrice, Color.HSVToRGB(0.33f, 0.80f, 0.75f)),
-        Make("blue",    "Ocean Blue",     0.60f, SkinPrice, Color.HSVToRGB(0.60f, 0.85f, 0.90f)),
-        Make("purple",  "Royal Purple",   0.77f, SkinPrice, Color.HSVToRGB(0.77f, 0.70f, 0.85f)),
-        Make("pink",    "Candy Pink",     0.92f, SkinPrice, Color.HSVToRGB(0.92f, 0.60f, 0.95f)),
+        Make("classic", "Classic Yellow", -1f,   0,         new Color(0.96f, 0.77f, 0.10f), 0),
+        Make("red",     "Ruby Red",       0.00f, SkinPrice, Color.HSVToRGB(0.00f, 0.85f, 0.90f), 0),
+        Make("orange",  "Sunset Orange",  0.07f, SkinPrice, Color.HSVToRGB(0.07f, 0.90f, 0.95f), 0),
+        Make("green",   "Forest Green",   0.33f, SkinPrice, Color.HSVToRGB(0.33f, 0.80f, 0.75f), 1),
+        Make("blue",    "Ocean Blue",     0.60f, SkinPrice, Color.HSVToRGB(0.60f, 0.85f, 0.90f), 2),
+        Make("purple",  "Royal Purple",   0.77f, SkinPrice, Color.HSVToRGB(0.77f, 0.70f, 0.85f), 3),
+        Make("pink",    "Candy Pink",     0.92f, SkinPrice, Color.HSVToRGB(0.92f, 0.60f, 0.95f), ComingSoon),
     };
 
     // source-colour range that counts as "body yellow" (hue 22..72 degrees)
@@ -52,11 +54,24 @@ public static class RickshawSkins
     static readonly Dictionary<string, Material> materialCache = new Dictionary<string, Material>();
     static readonly Dictionary<Material, Material> originalOf = new Dictionary<Material, Material>();
 
-    static Skin Make(string id, string name, float hue, int price, Color swatch)
+    static Skin Make(string id, string name, float hue, int price, Color swatch, int unlockLevel)
     {
         Skin s = new Skin();
-        s.id = id; s.name = name; s.hue = hue; s.price = price; s.swatch = swatch;
+        s.id = id; s.name = name; s.hue = hue; s.price = price; s.swatch = swatch; s.unlockLevel = unlockLevel;
         return s;
+    }
+
+    public static bool IsLocked(Skin skin, int levelsCompleted)
+    {
+        return skin.unlockLevel == ComingSoon || levelsCompleted < skin.unlockLevel;
+    }
+
+    /// <summary>The skin a level unlocks, or null if it unlocks none.</summary>
+    public static Skin UnlockedBy(int levelNumber)
+    {
+        foreach (Skin s in All)
+            if (s.unlockLevel == levelNumber) return s;
+        return null;
     }
 
     public static Skin Find(string id)
@@ -759,6 +774,12 @@ public class RickshawSkinShop : MonoBehaviour
         return p != null && p.ownedSkins != null && p.ownedSkins.Contains(skin.id);
     }
 
+    // a skin the profile already owns stays usable, whatever its unlock level
+    bool IsLocked(PlayerProfileData p, RickshawSkins.Skin skin)
+    {
+        return !Owns(p, skin) && RickshawSkins.IsLocked(skin, p != null ? p.levelsCompleted : 0);
+    }
+
     bool IsEquipped(PlayerProfileData p, RickshawSkins.Skin skin)
     {
         string equipped = (p == null || string.IsNullOrEmpty(p.equippedSkin)) ? "classic" : p.equippedSkin;
@@ -776,10 +797,15 @@ public class RickshawSkinShop : MonoBehaviour
             c.frame.color = i == selected ? new Color(0.95f, 0.72f, 0.12f, 1f) : new Color(0.16f, 0.19f, 0.26f, 1f);
             if (IsEquipped(p, c.skin)) { c.status.text = "EQUIPPED"; c.status.color = new Color(0.4f, 1f, 0.5f, 1f); }
             else if (Owns(p, c.skin)) { c.status.text = "OWNED"; c.status.color = Color.white; }
+            else if (IsLocked(p, c.skin)) { c.status.text = "LOCKED"; c.status.color = new Color(0.7f, 0.72f, 0.78f, 1f); }
             else { c.status.text = "$ " + c.skin.price; c.status.color = new Color(1f, 0.84f, 0.3f, 1f); }
             // text on the highlighted (yellow) card stays readable thanks to the dark text below
             if (i == selected && !IsEquipped(p, c.skin) && !Owns(p, c.skin)) c.status.color = new Color(0.25f, 0.15f, 0f, 1f);
             if (i == selected && Owns(p, c.skin) && !IsEquipped(p, c.skin)) c.status.color = new Color(0.1f, 0.1f, 0.1f, 1f);
+
+            Transform swatch = c.frame.transform.Find("Swatch");
+            if (swatch != null)
+                swatch.GetComponent<Image>().color = IsLocked(p, c.skin) ? Color.Lerp(c.skin.swatch, new Color(0.1f, 0.1f, 0.12f, 1f), 0.75f) : c.skin.swatch;
         }
 
         RickshawSkins.Skin sel = RickshawSkins.All[selected];
@@ -796,6 +822,11 @@ public class RickshawSkinShop : MonoBehaviour
         else if (Owns(p, sel))
         {
             SetAction("EQUIP", new Color(0.2f, 0.6f, 0.9f, 1f), true);
+        }
+        else if (IsLocked(p, sel))
+        {
+            string label = sel.unlockLevel == RickshawSkins.ComingSoon ? "COMING SOON" : "UNLOCK: BEAT LEVEL " + sel.unlockLevel;
+            SetAction(label, new Color(0.35f, 0.35f, 0.4f, 1f), false);
         }
         else
         {
@@ -818,7 +849,7 @@ public class RickshawSkinShop : MonoBehaviour
         if (p.ownedSkins == null) p.ownedSkins = new List<string>();
 
         RickshawSkins.Skin sel = RickshawSkins.All[selected];
-        if (IsEquipped(p, sel)) return;
+        if (IsEquipped(p, sel) || IsLocked(p, sel)) return;
 
         if (!Owns(p, sel))
         {

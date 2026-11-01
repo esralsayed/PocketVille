@@ -65,6 +65,15 @@ public class MoneyManager : MonoBehaviour
             SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
+    // Puts the balance back to an earlier amount (e.g. restarting a failed level).
+    public void RestoreBalance(int amount)
+    {
+        CurrentMoney = Mathf.Max(0, amount);
+
+        OnMoneyChanged?.Invoke(CurrentMoney);
+        SaveToActiveProfile();
+    }
+
     public void AddMoney(int amount)
     {
         if (amount <= 0)

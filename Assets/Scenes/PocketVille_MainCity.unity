@@ -6545,6 +6545,8 @@ MonoBehaviour:
   walkSpeed: 4.5
   turnSpeed: 12
   rideFare: 50
+  fallReferenceName: Roads & Infrastructure
+  fallDepth: 25
   mapRootNames:
   - Roads & Infrastructure
   - Buildings
@@ -6567,7 +6569,7 @@ MonoBehaviour:
   menuSceneName: MainMenu
   driverSeatOffset: {x: 0, y: 0, z: 0}
   passengerSeatOffset: {x: 0, y: 0, z: 0}
-  seatHeight: 0.25
+  seatHeight: -0.3
   fuelStationNames:
   - Gas_station_A_PREFAB
   stallLocalOffset: {x: 5.3, y: 0, z: 12.9}
