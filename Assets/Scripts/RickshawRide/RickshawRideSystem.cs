@@ -1008,6 +1008,10 @@ public class RickshawRideSystem : MonoBehaviour
 
     GameObject driver;
     CharacterController driverController;
+    Animator driverAnimator;
+    static readonly int WalkingHash = Animator.StringToHash("Walking");
+    // Walking.anim is an in-place cycle of about 1.47 m/s. Playback is scaled to walkSpeed so the feet keep up.
+    const float WalkClipMetersPerSecond = 1.47f;
     GameObject customer;
     Camera rideCamera;
 
@@ -1240,6 +1244,9 @@ public class RickshawRideSystem : MonoBehaviour
         driverController.radius = 0.3f;
         driverController.center = new Vector3(0f, 0.9f, 0f);
         driverController.stepOffset = 0.3f;
+        driverAnimator = driver.GetComponent<Animator>();
+        if (driverAnimator != null)
+            driverAnimator.applyRootMotion = false; // CharacterController moves him; the clip only poses the body
         camYaw = driver.transform.eulerAngles.y;
         driverSafePos = driver.transform.position;
     }
@@ -1330,6 +1337,9 @@ public class RickshawRideSystem : MonoBehaviour
         if (driver == null)
             return;
 
+        if (current != null || paused || levelPanelOpen)
+            SetWalking(false);
+
         if (current != null)
         {
             Transform vt = current.Transform;
@@ -1356,14 +1366,33 @@ public class RickshawRideSystem : MonoBehaviour
         Vector3 dir = Quaternion.Euler(0f, camYaw, 0f) * new Vector3(x, 0f, y);
         if (dir.sqrMagnitude > 1f) dir.Normalize();
 
+        bool moving = dir.sqrMagnitude > 0.01f && driverController.enabled;
         if (driverController.enabled)
             driverController.SimpleMove(dir * walkSpeed);
 
-        if (dir.sqrMagnitude > 0.01f)
+        if (moving)
         {
             Quaternion target = Quaternion.LookRotation(dir);
             driver.transform.rotation = Quaternion.Slerp(driver.transform.rotation, target, 1f - Mathf.Exp(-turnSpeed * Time.deltaTime));
         }
+
+        SetWalking(moving);
+    }
+
+    void SetWalking(bool moving)
+    {
+        if (driverAnimator == null)
+            return;
+        driverAnimator.SetBool(WalkingHash, moving);
+        if (!moving)
+        {
+            driverAnimator.speed = 1f;
+            return;
+        }
+        float rate = walkSpeed / WalkClipMetersPerSecond;
+        if (rate < 0.6f) rate = 0.6f;
+        if (rate > 3.2f) rate = 3.2f;
+        driverAnimator.speed = rate;
     }
 
     // ---------- ride / leave ----------
