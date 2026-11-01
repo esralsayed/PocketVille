@@ -21,6 +21,7 @@ public class PlayerProfileData
 
     // Player progress.
     public string currentProfession;
+    public int levelsCompleted;
 
     // Player position.
     public Vector3 playerPosition;

@@ -687,6 +687,208 @@ public class RickshawRideSystem : MonoBehaviour
         return inside;
     }
 
+    // ---------- levels ----------
+    // The city plays the first level the profile has not completed (RickshawLevels.All). Failing or leaving
+    // puts the coins back to what they were when the level started, and every restart reloads the scene,
+    // so a retry begins exactly where the level began. With no levels left the game is endless, as before.
+    static int levelsCompletedWithoutProfile; // playing the city scene directly, with no profile
+
+    RickshawLevels.Level level; // null = no levels left
+    int levelNumber, levelStartMoney;
+    bool levelRunning, levelPanelOpen;
+    float levelTimeLeft;
+    GameObject levelHud, levelPanel;
+    Text levelHudText, levelPanelTitle, levelPanelBody;
+    readonly List<GameObject> levelButtons = new List<GameObject>();
+
+    int LevelsCompleted
+    {
+        get
+        {
+            ProfileManager pm = ProfileManager.Instance;
+            return pm != null && pm.ActiveProfile != null ? pm.ActiveProfile.levelsCompleted : levelsCompletedWithoutProfile;
+        }
+    }
+
+    void MarkLevelCompleted()
+    {
+        ProfileManager pm = ProfileManager.Instance;
+        if (pm != null && pm.ActiveProfile != null)
+        {
+            pm.ActiveProfile.levelsCompleted = levelNumber;
+            pm.SaveActiveProfile();
+        }
+        else
+        {
+            levelsCompletedWithoutProfile = levelNumber;
+        }
+    }
+
+    void ChooseLevel()
+    {
+        int done = LevelsCompleted;
+        if (done >= RickshawLevels.All.Length) return;
+        level = RickshawLevels.All[done];
+        levelNumber = done + 1;
+    }
+
+    void ShowLevelIntro()
+    {
+        if (level == null) return;
+
+        string body = "Serve " + level.customers + " customers in " + FormatTime(level.timeLimit);
+        if (level.minAverageStars > 0f)
+            body += "\nKeep an average rating of " + level.minAverageStars.ToString("0.#") + " stars or better";
+        OpenLevelPanel("LEVEL " + levelNumber, body + "\n\n" + RewardText());
+        AddLevelButton("START", new Color(0.2f, 0.65f, 0.3f, 1f), StartLevel);
+    }
+
+    string RewardText()
+    {
+        RickshawSkins.Skin skin = RickshawSkins.UnlockedBy(levelNumber);
+        return "Reward: bonus coins for your average rating" + (skin != null ? " + unlocks " + skin.name : "");
+    }
+
+    void StartLevel()
+    {
+        levelStartMoney = MoneyManager.Instance != null ? MoneyManager.Instance.CurrentMoney : 0;
+        levelTimeLeft = level.timeLimit;
+        levelRunning = true;
+        levelPanelOpen = false;
+        levelPanel.SetActive(false);
+        Time.timeScale = 1f;
+    }
+
+    void TickLevel()
+    {
+        if (!levelRunning) return;
+        levelTimeLeft -= Time.deltaTime;
+        if (levelTimeLeft <= 0f)
+            FailLevel("Time's up! You served " + RidesCompleted + " of " + level.customers + " customers.");
+    }
+
+    void FinishLevel()
+    {
+        float average = AverageStars;
+        if (average < level.minAverageStars)
+        {
+            FailLevel("Your average rating was " + average.ToString("0.0") + " stars. You needed " + level.minAverageStars.ToString("0.#") + ".");
+            return;
+        }
+
+        levelRunning = false;
+        int bonus = Mathf.RoundToInt(average * RickshawLevels.BonusPerStar);
+        if (MoneyManager.Instance != null)
+            MoneyManager.Instance.AddMoney(bonus);
+        MarkLevelCompleted();
+
+        string body = "Average rating: " + average.ToString("0.0") + " stars\nLevel bonus: +" + bonus + " coins";
+        RickshawSkins.Skin skin = RickshawSkins.UnlockedBy(levelNumber);
+        if (skin != null)
+            body += "\n\nNew skin in the Item Shop: " + skin.name;
+        OpenLevelPanel("LEVEL " + levelNumber + " COMPLETE!", body);
+
+        bool moreLevels = levelNumber < RickshawLevels.All.Length;
+        AddLevelButton(moreLevels ? "NEXT LEVEL" : "KEEP DRIVING", new Color(0.2f, 0.65f, 0.3f, 1f), ReloadCity);
+        AddLevelButton("ITEM SHOP", new Color(0.95f, 0.72f, 0.12f, 1f), () => ReturnToMenu(true));
+        AddLevelButton("MAIN MENU", new Color(0.3f, 0.33f, 0.4f, 1f), () => ReturnToMenu(false));
+    }
+
+    void FailLevel(string reason)
+    {
+        levelRunning = false;
+        RestoreLevelStartMoney();
+        OpenLevelPanel("LEVEL " + levelNumber + " FAILED", reason);
+        AddLevelButton("RETRY", new Color(0.2f, 0.65f, 0.3f, 1f), ReloadCity);
+        AddLevelButton("MAIN MENU", new Color(0.3f, 0.33f, 0.4f, 1f), () => ReturnToMenu(false));
+    }
+
+    // also written to the profile directly: on a scene change MoneyManager may already be gone
+    void RestoreLevelStartMoney()
+    {
+        if (MoneyManager.Instance != null)
+            MoneyManager.Instance.RestoreBalance(levelStartMoney);
+
+        ProfileManager pm = ProfileManager.Instance;
+        if (pm != null && pm.ActiveProfile != null)
+        {
+            pm.ActiveProfile.money = levelStartMoney;
+            pm.SaveActiveProfile();
+        }
+    }
+
+    void ReloadCity()
+    {
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(gameObject.scene.name);
+    }
+
+    void OpenLevelPanel(string title, string body)
+    {
+        levelPanelOpen = true;
+        Time.timeScale = 0f;
+        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.None;
+        if (resultPanel != null) resultPanel.SetActive(false);
+
+        foreach (GameObject b in levelButtons) Destroy(b);
+        levelButtons.Clear();
+        levelPanelTitle.text = title;
+        levelPanelBody.text = body;
+        levelPanel.SetActive(true);
+    }
+
+    void AddLevelButton(string label, Color color, UnityEngine.Events.UnityAction onClick)
+    {
+        Transform panel = levelPanel.transform;
+        int before = panel.childCount;
+        Vector2 pos = new Vector2(0f, -130f - levelButtons.Count * 115f);
+        MakeMenuButton(panel, label, new Vector2(0.5f, 0.5f), pos, new Vector2(620f, 100f), color, levelFont, 42, onClick);
+        levelButtons.Add(panel.GetChild(before).gameObject);
+    }
+
+    Font levelFont;
+
+    void BuildLevelUi(Transform canvas, Font font)
+    {
+        levelFont = font;
+
+        RectTransform hud = MakePanel(canvas, "LevelPanel", new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(360f, 190f));
+        levelHudText = MakeText(hud, font, 30, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(10f, 6f), new Vector2(-10f, -6f));
+        levelHud = hud.gameObject;
+        levelHud.SetActive(level != null);
+
+        RectTransform dim = MakePanel(canvas, "LevelMessagePanel", new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(4000f, 3000f));
+        Image dimImg = dim.GetComponent<Image>();
+        dimImg.color = new Color(0f, 0f, 0f, 0.8f);
+        dimImg.raycastTarget = true; // blocks clicks behind the panel
+
+        RectTransform title = MakePanel(dim, "LevelTitle", new Vector2(0.5f, 0.5f), new Vector2(0f, 340f), new Vector2(1200f, 110f));
+        title.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+        levelPanelTitle = MakeText(title, font, 76, FontStyle.Bold, TextAnchor.MiddleCenter, Vector2.zero, Vector2.zero);
+
+        RectTransform body = MakePanel(dim, "LevelBody", new Vector2(0.5f, 0.5f), new Vector2(0f, 120f), new Vector2(1200f, 240f));
+        body.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+        levelPanelBody = MakeText(body, font, 36, FontStyle.Normal, TextAnchor.MiddleCenter, Vector2.zero, Vector2.zero);
+
+        levelPanel = dim.gameObject;
+        levelPanel.SetActive(false);
+    }
+
+    void RefreshLevelHud()
+    {
+        if (level == null || levelHudText == null) return;
+
+        float time = levelRunning ? levelTimeLeft : level.timeLimit;
+        string timeColor = levelRunning && time <= 30f ? "#FF5555" : "#FFD54A";
+        string text = "LEVEL " + levelNumber + "\n" +
+            "<size=52><color=" + timeColor + ">" + FormatTime(time) + "</color></size>\n" +
+            "Customers " + RidesCompleted + " / " + level.customers;
+        if (level.minAverageStars > 0f)
+            text += "\n<size=24>Rating " + (RidesCompleted > 0 ? AverageStars.ToString("0.0") : "-") + "  (need " + level.minAverageStars.ToString("0.#") + ")</size>";
+        levelHudText.text = text;
+    }
+
     [Header("Pause menu")]
     [SerializeField] string menuSceneName = "MainMenu";
 
@@ -718,6 +920,9 @@ public class RickshawRideSystem : MonoBehaviour
 
     void OnDestroy()
     {
+        // leaving in the middle of a level counts as restarting it
+        if (levelRunning) RestoreLevelStartMoney();
+
         // never leave the game frozen if this scene is unloaded while paused
         Time.timeScale = 1f;
         AudioListener.pause = false;
@@ -746,7 +951,9 @@ public class RickshawRideSystem : MonoBehaviour
         RectTransform hint = MakePanel(dim, "PauseHint", new Vector2(0.5f, 0.5f), new Vector2(0f, -250f), new Vector2(1000f, 60f));
         hint.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
         Text hintText = MakeText(hint, font, 28, FontStyle.Normal, TextAnchor.MiddleCenter, new Vector2(0f, 0f), new Vector2(0f, 0f));
-        hintText.text = "Your coins and skins are saved automatically.   Esc = resume";
+        hintText.text = level != null
+            ? "Leaving now restarts this level.   Esc = resume"
+            : "Your coins and skins are saved automatically.   Esc = resume";
 
         pausePanel = dim.gameObject;
         pausePanel.SetActive(false);
@@ -822,8 +1029,11 @@ public class RickshawRideSystem : MonoBehaviour
     float nextRefuelCheck;
 
     Text guidanceText, toastText, fuelWarnText;
-    GameObject toastBox, fuelWarnBox;
+    GameObject toastBox, fuelWarnBox, controlsPanel;
     Image fuelWarnImage;
+    static bool controlsSeen; // reloading the city for a retry or the next level doesn't show them again
+    float controlsHideAt = -1f;
+    const float controlsShowTime = 3f;
     Text coinText, fuelText;
     RectTransform fuelFill;
     Image fuelFillImage;
@@ -948,6 +1158,7 @@ public class RickshawRideSystem : MonoBehaviour
         }
 
         started = true;
+        ChooseLevel();
         ResolveLandmarks();
         ResolveFuelStalls();
         BuildMapTexture(); // before the driver/customer exist, so they are not baked into the map picture
@@ -956,6 +1167,7 @@ public class RickshawRideSystem : MonoBehaviour
         CreateCamera();
         BuildUi();
         BuildStallMarker();
+        ShowLevelIntro();
     }
 
     void PrepareVehicle(RideVehicle v)
@@ -1071,12 +1283,16 @@ public class RickshawRideSystem : MonoBehaviour
     void Update()
     {
         Keyboard kb = Keyboard.current;
-        if (kb == null || driver == null)
+        if (kb == null || driver == null || levelPanelOpen)
             return;
 
         if (kb.escapeKey.wasPressedThisFrame)
             SetPaused(!paused);
         if (paused)
+            return;
+
+        TickLevel();
+        if (levelPanelOpen)
             return;
 
         if (kb.mKey.wasPressedThisFrame)
@@ -1284,7 +1500,11 @@ public class RickshawRideSystem : MonoBehaviour
         customer = null;
         hasPassenger = false;
         Toast("Dropped off at " + destinationLabel + ".  +" + (result.fare + result.tip) + " coins");
-        StartCoroutine(SpawnNextCustomer());
+
+        if (levelRunning && RidesCompleted >= level.customers)
+            FinishLevel();
+        else
+            StartCoroutine(SpawnNextCustomer());
     }
 
     IEnumerator SpawnNextCustomer()
@@ -1301,8 +1521,19 @@ public class RickshawRideSystem : MonoBehaviour
         if (options.Count == 0) options = landmarks;
 
         Landmark next = options[Random.Range(0, options.Count)];
-        SpawnCustomerAt(next.position + Vector3.right * 2f, next.label);
+        SpawnCustomerAt(SpotBeside(next.position), next.label);
         Toast("New customer waiting at " + next.label);
+    }
+
+    // a side of the landmark that is open ground, not on top of whatever stands next to it (the ATM backs onto the gas station)
+    Vector3 SpotBeside(Vector3 landmark)
+    {
+        foreach (Vector3 side in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back })
+        {
+            Vector3 spot = landmark + side * 2f;
+            if (GroundPoint(spot).y <= landmark.y + 0.3f) return spot;
+        }
+        return landmark + Vector3.right * 2f;
     }
 
     // ---------- refuelling ----------
@@ -1589,7 +1820,7 @@ public class RickshawRideSystem : MonoBehaviour
 
         BuildHud(canvasObj.transform, font);
 
-        RectTransform help = MakePanel(canvasObj.transform, "ControlsPanel", new Vector2(1f, 0f), new Vector2(-24f, 24f), new Vector2(780f, 296f));
+        RectTransform help = MakePanel(canvasObj.transform, "ControlsPanel", new Vector2(1f, 0f), new Vector2(-24f, 96f), new Vector2(780f, 296f));
         Text helpText = MakeText(help, font, 26, FontStyle.Normal, TextAnchor.UpperLeft, new Vector2(18f, 12f), new Vector2(-12f, -12f));
         helpText.text =
             "<b>CONTROLS</b>\n" +
@@ -1600,6 +1831,13 @@ public class RickshawRideSystem : MonoBehaviour
             "Right mouse + drag  -  rotate camera (on foot)\n" +
             "Esc  -  pause menu / back to the Item Shop\n" +
             "M  -  mini map zoom";
+        controlsPanel = help.gameObject;
+        MakeMenuButton(canvasObj.transform, "CONTROLS", new Vector2(1f, 0f), new Vector2(-24f, 24f), new Vector2(240f, 60f), new Color(0.2f, 0.35f, 0.6f, 0.95f), font, 28, ToggleControls);
+
+        // shown once when the game starts; Time.time stands still behind the level intro, so the wait begins at START
+        controlsPanel.SetActive(!controlsSeen);
+        if (!controlsSeen) controlsHideAt = Time.time + controlsShowTime;
+        controlsSeen = true;
 
         RectTransform toastPanel = MakePanel(canvasObj.transform, "ToastPanel", new Vector2(0.5f, 0f), new Vector2(0f, 310f), new Vector2(1200f, 72f));
         toastText = MakeText(toastPanel, font, 32, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(12f, 4f), new Vector2(-12f, -4f));
@@ -1609,6 +1847,13 @@ public class RickshawRideSystem : MonoBehaviour
         BuildMiniMapUi(canvasObj.transform, font);
         BuildResultUi(canvasObj.transform, font);
         BuildPauseUi(canvasObj.transform, font);
+        BuildLevelUi(canvasObj.transform, font);
+    }
+
+    void ToggleControls()
+    {
+        controlsHideAt = -1f;
+        controlsPanel.SetActive(!controlsPanel.activeSelf);
     }
 
     static RectTransform MakePanel(Transform parent, string panelName, Vector2 anchor, Vector2 position, Vector2 size)
@@ -1732,6 +1977,13 @@ public class RickshawRideSystem : MonoBehaviour
         UpdateRideResultUi();
         RefreshMiniMap();
         RefreshHud();
+        RefreshLevelHud();
+
+        if (controlsHideAt >= 0f && Time.time >= controlsHideAt)
+        {
+            controlsHideAt = -1f;
+            controlsPanel.SetActive(false);
+        }
 
         bool showToast = Time.time < toastUntil;
         if (toastBox.activeSelf != showToast)
