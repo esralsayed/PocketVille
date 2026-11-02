@@ -9,6 +9,7 @@ using UnityEngine.UI;
 /// </summary>
 public class TrafficLightSystem : MonoBehaviour
 {
+    public event System.Action<int> FineCharged;
     [Tooltip("Coins lost for driving through a red light.")]
     [SerializeField] int redLightFine = 10;
     [SerializeField] float greenSeconds = 8f;
@@ -44,6 +45,8 @@ public class TrafficLightSystem : MonoBehaviour
     float[] groupLockedUntil = new float[0];
     GameObject warningBox;
     Text warningText;
+    TukTukController[] vehicles;
+    RickshawRideSystem rideSystem;
     TukTukController driven;
     Vector3 previousPosition;
     bool hasPrevious;
@@ -56,6 +59,10 @@ public class TrafficLightSystem : MonoBehaviour
     IEnumerator Setup()
     {
         yield return null;
+        vehicles = FindObjectsByType<TukTukController>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        rideSystem = FindAnyObjectByType<RickshawRideSystem>();
         CollectSignals();
         BuildWarning();
         if (signals.Count == 0)
@@ -238,7 +245,9 @@ public class TrafficLightSystem : MonoBehaviour
     void TickVehicle()
     {
         TukTukController current = null;
-        TukTukController[] vehicles = FindObjectsByType<TukTukController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        if (vehicles == null)
+            return;
+
         for (int i = 0; i < vehicles.Length; i++)
         {
             if (vehicles[i] != null && vehicles[i].enabled)
@@ -316,6 +325,38 @@ public class TrafficLightSystem : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// Returns true when a vehicle travelling in the supplied direction is
+    /// approaching one of the currently red signals. Used by ambient traffic.
+    /// </summary>
+    public bool ShouldStopForRed(Vector3 position, Vector3 travelDirection, float range)
+    {
+        travelDirection.y = 0f;
+        if (travelDirection.sqrMagnitude < 0.001f)
+            return false;
+        travelDirection.Normalize();
+
+        for (int i = 0; i < signals.Count; i++)
+        {
+            Signal signal = signals[i];
+            if (signal.lamp != Lamp.Red)
+                continue;
+
+            // A vehicle approaches this pole from its positive-forward side.
+            // Direction alignment prevents a nearby perpendicular lane from
+            // reacting to the wrong signal at the same junction.
+            float alignment = Vector3.Dot(travelDirection, -signal.forward);
+            if (alignment < 0.55f)
+                continue;
+
+            float along = Along(signal, position);
+            float side = Mathf.Abs(Side(signal, position));
+            if (along > 1.5f && along < Mathf.Max(2f, range) && side < 7f)
+                return true;
+        }
+        return false;
+    }
+
     void ChargeFine()
     {
         int paid = 0;
@@ -330,9 +371,18 @@ public class TrafficLightSystem : MonoBehaviour
         if (paid <= 0)
             return;
 
-        MoneyHUD hud = FindAnyObjectByType<MoneyHUD>();
-        if (hud != null)
-            hud.ShowDeduction(paid);
+        FineCharged?.Invoke(paid);
+
+        if (rideSystem != null)
+        {
+            rideSystem.ShowCoinDeduction(paid);
+        }
+        else
+        {
+            MoneyHUD hud = FindAnyObjectByType<MoneyHUD>();
+            if (hud != null)
+                hud.ShowDeduction(paid);
+        }
     }
 
     void RefreshWarning()

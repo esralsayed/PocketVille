@@ -254,7 +254,7 @@ public class RickshawSkinShop : MonoBehaviour
 
         // positions measured from the artwork, as fractions of the screen
         MakeHitArea(areas, "CreateProfileHit", 0.061f, 0.268f, OnCreateProfileClicked);
-        MakeHitArea(areas, "PlayHit", 0.503f, 0.750f, OnPlayClicked);
+        MakeHitArea(areas, "PlayHit", 0.503f, 0.750f, PlaySelectedProfile);
 
         // clicking a profile card makes it the active profile
         for (int i = 0; i < 5; i++)
@@ -432,7 +432,11 @@ public class RickshawSkinShop : MonoBehaviour
             ProfileMessage("Selected: " + list[index].profileName);
     }
 
-    void OnPlayClicked()
+    /// <summary>
+    /// Starts gameplay only when a profile has been selected. This is the single
+    /// entry point used by both the baked Play button and the runtime fallback UI.
+    /// </summary>
+    public void PlaySelectedProfile()
     {
         if (Profile == null)
         {

@@ -687,16 +687,18 @@ public class RickshawRideSystem : MonoBehaviour
         return inside;
     }
 
-    // ---------- levels ----------
-    // The city plays the first level the profile has not completed (RickshawLevels.All). Failing or leaving
-    // puts the coins back to what they were when the level started, and every restart reloads the scene,
-    // so a retry begins exactly where the level began. With no levels left the game is endless, as before.
+    // ---------- contracts ----------
+    // Every city visit offers three different contracts. Completing one raises the driver's rank and
+    // generates a harder set. Failing or leaving restores the coins held when the contract started.
     static int levelsCompletedWithoutProfile; // playing the city scene directly, with no profile
 
-    RickshawLevels.Level level; // null = no levels left
+    RickshawLevels.Level level;
+    RickshawLevels.Level[] contractOffers;
     int levelNumber, levelStartMoney;
+    int contractCrashes, contractViolations;
     bool levelRunning, levelPanelOpen;
     float levelTimeLeft;
+    TrafficLightSystem trafficLights;
     GameObject levelHud, levelPanel;
     Text levelHudText, levelPanelTitle, levelPanelBody;
     readonly List<GameObject> levelButtons = new List<GameObject>();
@@ -727,20 +729,36 @@ public class RickshawRideSystem : MonoBehaviour
     void ChooseLevel()
     {
         int done = LevelsCompleted;
-        if (done >= RickshawLevels.All.Length) return;
-        level = RickshawLevels.All[done];
         levelNumber = done + 1;
+        contractOffers = RickshawLevels.GenerateOffers(done);
+        level = null;
     }
 
     void ShowLevelIntro()
     {
-        if (level == null) return;
+        OpenLevelPanel("CHOOSE CONTRACT  •  RANK " + levelNumber,
+            "Pick a shift. Contracts become harder and more rewarding as your rank grows.\n" +
+            "Night Rush starts after dark immediately, so you can play the night city now.");
 
-        string body = "Serve " + level.customers + " customers in " + FormatTime(level.timeLimit);
-        if (level.minAverageStars > 0f)
-            body += "\nKeep an average rating of " + level.minAverageStars.ToString("0.#") + " stars or better";
-        OpenLevelPanel("LEVEL " + levelNumber, body + "\n\n" + RewardText());
+        for (int i = 0; i < contractOffers.Length; i++)
+        {
+            int offerIndex = i;
+            RickshawLevels.Level offer = contractOffers[i];
+            string prefix = i == 0 ? "STANDARD  •  " : (i == 1 ? "PRECISION  •  " : "NIGHT  •  ");
+            Color color = i == 0 ? new Color(0.2f, 0.65f, 0.3f, 1f)
+                : (i == 1 ? new Color(0.88f, 0.58f, 0.12f, 1f) : new Color(0.25f, 0.32f, 0.7f, 1f));
+            AddLevelButton(prefix + offer.title, color, () => SelectContract(offerIndex));
+        }
+    }
+
+    void SelectContract(int offerIndex)
+    {
+        level = contractOffers[Mathf.Clamp(offerIndex, 0, contractOffers.Length - 1)];
+        levelHud.SetActive(true);
+        OpenLevelPanel(level.title.ToUpperInvariant() + "  •  RANK " + levelNumber,
+            level.Rules() + "\n\n" + RewardText());
         AddLevelButton("START", new Color(0.2f, 0.65f, 0.3f, 1f), StartLevel);
+        AddLevelButton("BACK", new Color(0.3f, 0.33f, 0.4f, 1f), ShowLevelIntro);
     }
 
     string RewardText()
@@ -753,10 +771,32 @@ public class RickshawRideSystem : MonoBehaviour
     {
         levelStartMoney = MoneyManager.Instance != null ? MoneyManager.Instance.CurrentMoney : 0;
         levelTimeLeft = level.timeLimit;
+        contractCrashes = 0;
+        contractViolations = 0;
+
+        if (level.nightShift && DayNightSystem.Instance != null)
+            DayNightSystem.Instance.AdvanceToHour(19.5f);
+
+        if (level.lowFuelStart)
+            foreach (RideVehicle vehicle in vehicles)
+                if (vehicle.fuel != null)
+                    vehicle.fuel.SetFuelFraction(0.35f);
+
+        CityTraffic cityTraffic = FindAnyObjectByType<CityTraffic>();
+        if (cityTraffic != null)
+            cityTraffic.SetDifficulty(level.trafficSpeedMultiplier);
+
         levelRunning = true;
         levelPanelOpen = false;
         levelPanel.SetActive(false);
         Time.timeScale = 1f;
+        Toast(level.nightShift ? "Night shift started — street lights are on." : level.title + " started.");
+    }
+
+    void OnTrafficFineCharged(int amount)
+    {
+        if (levelRunning)
+            contractViolations++;
     }
 
     void TickLevel()
@@ -769,6 +809,19 @@ public class RickshawRideSystem : MonoBehaviour
 
     void FinishLevel()
     {
+        if (level.noCrashes && contractCrashes > 0)
+        {
+            FailLevel("This contract required clean passenger rides, but you had " + contractCrashes +
+                (contractCrashes == 1 ? " crash." : " crashes."));
+            return;
+        }
+        if (level.noViolations && contractViolations > 0)
+        {
+            FailLevel("This contract allowed no red-light violations. You received " + contractViolations +
+                (contractViolations == 1 ? " fine." : " fines."));
+            return;
+        }
+
         float average = AverageStars;
         if (average < level.minAverageStars)
         {
@@ -786,10 +839,9 @@ public class RickshawRideSystem : MonoBehaviour
         RickshawSkins.Skin skin = RickshawSkins.UnlockedBy(levelNumber);
         if (skin != null)
             body += "\n\nNew skin in the Item Shop: " + skin.name;
-        OpenLevelPanel("LEVEL " + levelNumber + " COMPLETE!", body);
+        OpenLevelPanel("CONTRACT COMPLETE!", body);
 
-        bool moreLevels = levelNumber < RickshawLevels.All.Length;
-        AddLevelButton(moreLevels ? "NEXT LEVEL" : "KEEP DRIVING", new Color(0.2f, 0.65f, 0.3f, 1f), ReloadCity);
+        AddLevelButton("NEXT CONTRACT", new Color(0.2f, 0.65f, 0.3f, 1f), ReloadCity);
         AddLevelButton("ITEM SHOP", new Color(0.95f, 0.72f, 0.12f, 1f), () => ReturnToMenu(true));
         AddLevelButton("MAIN MENU", new Color(0.3f, 0.33f, 0.4f, 1f), () => ReturnToMenu(false));
     }
@@ -798,7 +850,7 @@ public class RickshawRideSystem : MonoBehaviour
     {
         levelRunning = false;
         RestoreLevelStartMoney();
-        OpenLevelPanel("LEVEL " + levelNumber + " FAILED", reason);
+        OpenLevelPanel("CONTRACT FAILED", reason);
         AddLevelButton("RETRY", new Color(0.2f, 0.65f, 0.3f, 1f), ReloadCity);
         AddLevelButton("MAIN MENU", new Color(0.3f, 0.33f, 0.4f, 1f), () => ReturnToMenu(false));
     }
@@ -881,7 +933,7 @@ public class RickshawRideSystem : MonoBehaviour
 
         float time = levelRunning ? levelTimeLeft : level.timeLimit;
         string timeColor = levelRunning && time <= 30f ? "#FF5555" : "#FFD54A";
-        string text = "LEVEL " + levelNumber + "\n" +
+        string text = level.title.ToUpperInvariant() + "  •  RANK " + levelNumber + "\n" +
             "<size=52><color=" + timeColor + ">" + FormatTime(time) + "</color></size>\n" +
             "Customers " + RidesCompleted + " / " + level.customers;
         if (level.minAverageStars > 0f)
@@ -920,6 +972,9 @@ public class RickshawRideSystem : MonoBehaviour
 
     void OnDestroy()
     {
+        if (trafficLights != null)
+            trafficLights.FineCharged -= OnTrafficFineCharged;
+
         // leaving in the middle of a level counts as restarting it
         if (levelRunning) RestoreLevelStartMoney();
 
@@ -1038,7 +1093,12 @@ public class RickshawRideSystem : MonoBehaviour
     static bool controlsSeen; // reloading the city for a retry or the next level doesn't show them again
     float controlsHideAt = -1f;
     const float controlsShowTime = 3f;
-    Text coinText, fuelText;
+    Text coinText, fuelText, worldClockText;
+    RectTransform coinPanel, coinDeductionRt;
+    Text coinDeductionText;
+    Vector2 coinPanelHome;
+    float coinDeductionStarted = -1f;
+    const float CoinDeductionDuration = 1.1f;
     RectTransform fuelFill;
     Image fuelFillImage;
 
@@ -1046,7 +1106,26 @@ public class RickshawRideSystem : MonoBehaviour
     void BuildHud(Transform canvas, Font font)
     {
         RectTransform coin = MakePanel(canvas, "CoinsPanel", new Vector2(0f, 1f), new Vector2(24f, -24f), new Vector2(330f, 74f));
+        coinPanel = coin;
+        coinPanelHome = coin.anchoredPosition;
         coinText = MakeText(coin, font, 40, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 4f), new Vector2(-8f, -4f));
+
+        GameObject deduction = new GameObject("CoinDeduction", typeof(RectTransform), typeof(Text));
+        deduction.transform.SetParent(coin, false);
+        coinDeductionRt = (RectTransform)deduction.transform;
+        coinDeductionRt.anchorMin = new Vector2(0.5f, 0f);
+        coinDeductionRt.anchorMax = new Vector2(0.5f, 0f);
+        coinDeductionRt.pivot = new Vector2(0.5f, 1f);
+        coinDeductionRt.anchoredPosition = new Vector2(0f, -8f);
+        coinDeductionRt.sizeDelta = new Vector2(300f, 64f);
+        coinDeductionText = deduction.GetComponent<Text>();
+        coinDeductionText.font = font;
+        coinDeductionText.fontSize = 38;
+        coinDeductionText.fontStyle = FontStyle.Bold;
+        coinDeductionText.alignment = TextAnchor.MiddleCenter;
+        coinDeductionText.color = new Color(1f, 0.18f, 0.12f, 1f);
+        coinDeductionText.raycastTarget = false;
+        deduction.SetActive(false);
 
         RectTransform fuelPanel = MakePanel(canvas, "FuelReadoutPanel", new Vector2(0f, 1f), new Vector2(24f, -110f), new Vector2(330f, 90f));
         fuelText = MakeText(fuelPanel, font, 28, FontStyle.Bold, TextAnchor.UpperLeft, new Vector2(14f, 4f), new Vector2(-14f, -6f));
@@ -1072,6 +1151,9 @@ public class RickshawRideSystem : MonoBehaviour
         fuelFill.offsetMax = Vector2.zero;
         fuelFillImage = fill.GetComponent<Image>();
         fuelFillImage.raycastTarget = false;
+
+        RectTransform clockPanel = MakePanel(canvas, "WorldClockPanel", new Vector2(0f, 1f), new Vector2(24f, -286f), new Vector2(330f, 60f));
+        worldClockText = MakeText(clockPanel, font, 27, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 3f), new Vector2(-8f, -3f));
     }
 
     void RefreshHud()
@@ -1079,7 +1161,11 @@ public class RickshawRideSystem : MonoBehaviour
         if (coinText == null) return;
 
         int money = MoneyManager.Instance != null ? MoneyManager.Instance.CurrentMoney : 0;
-        coinText.text = "<color=#FFD54A>$ " + money.ToString("N0") + "</color>";
+        bool showingDeduction = coinDeductionStarted >= 0f;
+        coinText.text = "<color=" + (showingDeduction ? "#FF4D42" : "#FFD54A") + ">$ " + money.ToString("N0") + "</color>";
+        UpdateCoinDeductionAnimation();
+        if (worldClockText != null)
+            worldClockText.text = DayNightSystem.Instance != null ? DayNightSystem.Instance.FormattedTime : "DAY 1";
 
         TukTukFuelSystem f = null;
         if (current != null)
@@ -1107,6 +1193,44 @@ public class RickshawRideSystem : MonoBehaviour
         fuelFill.anchorMax = new Vector2(Mathf.Clamp01(n), 1f);
         fuelText.text = "FUEL  " + Mathf.RoundToInt(n * 100f) + "%" + (f.IsEmpty ? "  EMPTY" : (low ? "  LOW" : ""));
         fuelText.color = low ? c : Color.white;
+    }
+
+    /// <summary>Plays visible feedback on the gameplay coin HUD when coins are taken.</summary>
+    public void ShowCoinDeduction(int amount)
+    {
+        if (amount <= 0 || coinPanel == null || coinDeductionText == null)
+            return;
+
+        coinDeductionText.text = "-$" + amount.ToString("N0");
+        coinDeductionText.gameObject.SetActive(true);
+        coinDeductionStarted = Time.unscaledTime;
+        UpdateCoinDeductionAnimation();
+    }
+
+    void UpdateCoinDeductionAnimation()
+    {
+        if (coinDeductionStarted < 0f || coinPanel == null || coinDeductionText == null)
+            return;
+
+        float progress = (Time.unscaledTime - coinDeductionStarted) / CoinDeductionDuration;
+        if (progress >= 1f)
+        {
+            coinDeductionStarted = -1f;
+            coinPanel.anchoredPosition = coinPanelHome;
+            coinPanel.localScale = Vector3.one;
+            coinDeductionText.gameObject.SetActive(false);
+            return;
+        }
+
+        progress = Mathf.Clamp01(progress);
+        float fade = 1f - Mathf.SmoothStep(0.65f, 1f, progress);
+        float shake = Mathf.Sin(progress * Mathf.PI * 12f) * (1f - progress) * 12f;
+        float punch = 1f + Mathf.Sin(progress * Mathf.PI) * 0.18f;
+
+        coinPanel.anchoredPosition = coinPanelHome + new Vector2(shake, 0f);
+        coinPanel.localScale = Vector3.one * punch;
+        coinDeductionRt.anchoredPosition = new Vector2(0f, -8f - 34f * progress);
+        coinDeductionText.color = new Color(1f, 0.18f, 0.12f, fade);
     }
     GameObject stallMarker;
     Transform stallArrow;
@@ -1163,6 +1287,9 @@ public class RickshawRideSystem : MonoBehaviour
 
         started = true;
         ChooseLevel();
+        trafficLights = FindAnyObjectByType<TrafficLightSystem>();
+        if (trafficLights != null)
+            trafficLights.FineCharged += OnTrafficFineCharged;
         ResolveLandmarks();
         ResolveFuelStalls();
         BuildMapTexture(); // before the driver/customer exist, so they are not baked into the map picture
@@ -1514,8 +1641,11 @@ public class RickshawRideSystem : MonoBehaviour
 
     void DropOff()
     {
-        int fare = Mathf.Max(1, rideFare);
+        float multiplier = levelRunning && level != null ? level.fareMultiplier : 1f;
+        int fare = Mathf.Max(1, Mathf.RoundToInt(rideFare * multiplier));
         RideResult result = ScoreRide(fare);
+        if (levelRunning)
+            contractCrashes += result.crashes;
         if (MoneyManager.Instance != null)
             MoneyManager.Instance.AddMoney(result.fare + result.tip);
         ShowRideResult(result);

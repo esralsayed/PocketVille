@@ -53,6 +53,13 @@ public class TukTukController : MonoBehaviour
     [Tooltip("Damping applied to pitch and roll rates.")]
     [SerializeField] float uprightDamping = 3.5f;
 
+    [Header("Curb access")]
+    [Tooltip("Maximum low obstacle height that receives step assistance.")]
+    [SerializeField] float curbProbeHeight = 0.18f;
+    [SerializeField] float curbProbeDistance = 1.15f;
+    [SerializeField] float curbLiftSpeed = 1.8f;
+    [SerializeField] float curbPushAcceleration = 8f;
+
     Rigidbody body;
     TukTukFuelSystem fuel;
     InputActionMap actions;
@@ -212,11 +219,56 @@ public class TukTukController : MonoBehaviour
         Vector3 flatVelocityAfter = forward * newForwardSpeed + right * newSideSpeed;
         Vector3 velocityAfter = new Vector3(flatVelocityAfter.x, velocity.y, flatVelocityAfter.z);
         body.linearVelocity = velocityAfter;
+        ApplyCurbAssist(throttle, forward, flatVelocity.magnitude);
         if (fuel != null && IsEnginePropelling(throttle, handbrake, forwardSpeed, canPropel))
             fuel.ConsumePropulsion(throttle, flatVelocity.magnitude, deltaTime);
 
         ApplySteering(steer, newForwardSpeed, deltaTime);
         ApplyUprightTorque();
+    }
+
+    void ApplyCurbAssist(float throttle, Vector3 forward, float speed)
+    {
+        if (Mathf.Abs(throttle) < 0.1f || speed > 6f || body.linearVelocity.y > 1f)
+            return;
+
+        Vector3 direction = throttle >= 0f ? forward : -forward;
+        Vector3 lowOrigin = transform.position + Vector3.up * curbProbeHeight + direction * 0.65f;
+        RaycastHit lowHit;
+        if (!TryCurbProbe(lowOrigin, 0.07f, direction, curbProbeDistance, out lowHit))
+            return;
+        if (lowHit.normal.y > 0.55f)
+            return;
+
+        Vector3 highOrigin = lowOrigin + Vector3.up * 0.42f;
+        RaycastHit highHit;
+        if (TryCurbProbe(highOrigin, 0.09f, direction, curbProbeDistance, out highHit))
+            return;
+
+        Vector3 velocity = body.linearVelocity;
+        velocity.y = Mathf.Max(velocity.y, curbLiftSpeed);
+        body.linearVelocity = velocity;
+        body.AddForce(direction * curbPushAcceleration, ForceMode.Acceleration);
+    }
+
+    bool TryCurbProbe(Vector3 origin, float radius, Vector3 direction, float distance, out RaycastHit bestHit)
+    {
+        RaycastHit[] hits = Physics.SphereCastAll(origin, radius, direction, distance,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        bestHit = new RaycastHit();
+        float nearest = float.MaxValue;
+        bool found = false;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            if (hits[i].transform == null || hits[i].transform.root == transform.root)
+                continue;
+            if (hits[i].distance >= nearest)
+                continue;
+            nearest = hits[i].distance;
+            bestHit = hits[i];
+            found = true;
+        }
+        return found;
     }
 
     bool IsEnginePropelling(float throttle, bool handbrake, float forwardSpeed, bool canPropel)

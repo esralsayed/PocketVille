@@ -6502,6 +6502,10 @@ GameObject:
   m_Component:
   - component: {fileID: 35262130}
   - component: {fileID: 35262129}
+  - component: {fileID: 35262131}
+  - component: {fileID: 35262132}
+  - component: {fileID: 35262133}
+  - component: {fileID: 35262134}
   m_Layer: 0
   m_Name: RickshawRideSystem
   m_TagString: Untagged
@@ -6580,6 +6584,88 @@ MonoBehaviour:
   cameraDistance: 7
   cameraPitch: 18
   orbitSensitivity: 0.15
+--- !u!114 &35262131
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 35262128}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 565b71d429ba40344aae7f543552d45a, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  characterPrefabs:
+  - {fileID: 6415561937286359620, guid: d1255cdc2aa17e64dac91efa5124e941, type: 3}
+  - {fileID: 3560489353750393262, guid: 8cf71091043ddd54d9341585de596b13, type: 3}
+  - {fileID: 4324779109626998850, guid: d985f15668df6d745a55e7bafb01357b, type: 3}
+  - {fileID: 6463178797277354336, guid: fc2efff696743074ebe14a5214e205d8, type: 3}
+  - {fileID: 6971121201570370863, guid: db91a7b2101a20d4cb6d32da43560d1a, type: 3}
+  - {fileID: 3927503875114477191, guid: e760aac9727569a4faff8e529b1f4ebe, type: 3}
+  - {fileID: 9092202679672275406, guid: 03514bc77d960634eb7bebea16b66b4b, type: 3}
+  - {fileID: 1332946792230564792, guid: cab265c9f8731714290ec0a1569e469d, type: 3}
+  walkerCount: 24
+  walkSpeed: 1.2
+--- !u!114 &35262132
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 35262128}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7fc9c2a5e3e65d4f89618068cf96ac3, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  redLightFine: 10
+  greenSeconds: 8
+  yellowSeconds: 2
+  redSeconds: 8
+--- !u!114 &35262133
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 35262128}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73df17f870de4a94a9fe344e902480c1, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  vehiclePrefab: {fileID: -6689036041284674117, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
+  vehicleCount: 6
+  drivingSpeed: 5
+  turnSpeed: 5
+  obstacleDistance: 7
+  minimumRoadLength: 24
+--- !u!114 &35262134
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 35262128}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f7377e683b74288ac0cf892825e87ac, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  startingHour: 8
+  realSecondsPerDay: 1080
+  sun: {fileID: 190857409}
+  daySunIntensity: 1.05
+  nightSunIntensity: 0.04
+  daySunColor: {r: 1, g: 0.96, b: 0.84, a: 1}
+  horizonSunColor: {r: 1, g: 0.45, b: 0.2, a: 1}
+  nightAmbientColor: {r: 0.035, g: 0.055, b: 0.12, a: 1}
+  dayAmbientColor: {r: 0.72, g: 0.78, b: 0.86, a: 1}
+  maxActiveStreetLights: 24
+  streetLightRange: 15
+  streetLightIntensity: 5
+  streetLightColor: {r: 1, g: 0.72, b: 0.34, a: 1}
 --- !u!4 &35262130
 Transform:
   m_ObjectHideFlags: 0
@@ -63573,8 +63659,7 @@ Transform:
   m_LocalPosition: {x: -353.42673, y: 71.90365, z: 0.15460718}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 1003173248}
+  m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &334452576
@@ -192707,7 +192792,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1003173248}
   - component: {fileID: 1003173249}
-  - component: {fileID: 1003173250}
   m_Layer: 0
   m_Name: MoneyManager
   m_TagString: Untagged
@@ -192728,7 +192812,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 334302333}
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1003173249
 MonoBehaviour:
@@ -192743,18 +192827,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   startingMoney: 50
---- !u!114 &1003173250
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1003173247}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 90b780260333a2743870ccce9dd4d6ea, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1001 &1003912582
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -332401,8 +332473,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1.4344434, y: 2.0763, z: 2.449433}
-  m_Center: {x: 0.0027206682, y: 1.0195, z: -0.26694107}
+  m_Size: {x: 1.3, y: 2, z: 2.2}
+  m_Center: {x: 0, y: 1.02, z: -0.15}
 --- !u!54 &1707982951
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -422994,3 +423066,4 @@ SceneRoots:
   - {fileID: 1817745632}
   - {fileID: 35262130}
   - {fileID: 92396337}
+  - {fileID: 1003173248}

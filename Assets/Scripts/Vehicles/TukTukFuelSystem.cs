@@ -63,6 +63,11 @@ public class TukTukFuelSystem : MonoBehaviour
         SetFuel(currentFuel + amount);
     }
 
+    public void SetFuelFraction(float normalized)
+    {
+        SetFuel(maxFuel * Mathf.Clamp01(normalized));
+    }
+
     /// <summary>
     /// Spends fuel for engine propulsion. Stationary motion, zero throttle,
     /// and a non-positive timestep spend nothing.

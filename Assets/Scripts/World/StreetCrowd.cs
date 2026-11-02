@@ -136,18 +136,46 @@ public class StreetCrowd : MonoBehaviour
             if (!Step(walker, dt))
                 continue;
 
-            walker.finished = true;
-            if (walker.animator != null)
-                walker.animator.SetBool(WalkingHash, false);
+            // A visible pedestrian turns around instead of freezing at the end of
+            // a sidewalk. Off-screen pedestrians are recycled into another route.
+            if (visible && ReverseAtRouteEnd(walker))
+                continue;
+            Despawn(i);
         }
 
         int budget = 2;
         while (crowdRoot != null && walkers.Count < walkerCount && budget > 0)
         {
-            if (!SpawnIncoming())
+            if (!SpawnIncoming() && !SpawnFallback())
                 break;
             budget--;
         }
+    }
+
+    static bool ReverseAtRouteEnd(Walker walker)
+    {
+        walker.direction = -walker.direction;
+        int next = walker.next + walker.direction;
+        if (next < 0 || next >= walker.route.Length)
+            return false;
+        walker.next = next;
+        walker.finished = false;
+        if (walker.animator != null)
+            walker.animator.SetBool(WalkingHash, true);
+        return true;
+    }
+
+    bool SpawnFallback()
+    {
+        if (routes.Count == 0 || crowdRoot == null)
+            return false;
+        for (int attempt = 0; attempt < Mathf.Min(12, routes.Count); attempt++)
+        {
+            Vector3[] route = routes[Random.Range(0, routes.Count)];
+            if (SpawnWalker(crowdRoot, route))
+                return true;
+        }
+        return false;
     }
 
     void Despawn(int index)
