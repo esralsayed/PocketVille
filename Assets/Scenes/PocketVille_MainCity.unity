@@ -6605,7 +6605,7 @@ MonoBehaviour:
   - {fileID: 3927503875114477191, guid: e760aac9727569a4faff8e529b1f4ebe, type: 3}
   - {fileID: 9092202679672275406, guid: 03514bc77d960634eb7bebea16b66b4b, type: 3}
   - {fileID: 1332946792230564792, guid: cab265c9f8731714290ec0a1569e469d, type: 3}
-  walkerCount: 24
+  walkerCount: 36
   walkSpeed: 1.2
 --- !u!114 &35262132
 MonoBehaviour:
@@ -6636,7 +6636,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   vehiclePrefab: {fileID: -6689036041284674117, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
-  vehicleCount: 6
+  vehicleCount: 12
   drivingSpeed: 5
   turnSpeed: 5
   obstacleDistance: 7

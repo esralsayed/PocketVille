@@ -1,0 +1,5 @@
+Kenney Car Kit 3.1 by Kenney (www.kenney.nl)
+License: Creative Commons Zero (CC0) - http://creativecommons.org/publicdomain/zero/1.0/
+Source: https://kenney.nl/assets/car-kit
+Used in PocketVille: 9 vehicles (Resources/KenneyVehicles/, loaded by CityTraffic for NPC traffic), 3 props (Props/), 22 parts (Parts/), shared texture (Textures/colormap.png).
+Crediting is optional under CC0; listed here for the game credits.

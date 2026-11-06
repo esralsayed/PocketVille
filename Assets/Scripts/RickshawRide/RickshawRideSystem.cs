@@ -207,6 +207,9 @@ public class RickshawRideSystem : MonoBehaviour
     Blip customerBlip, destinationBlip;
     readonly List<Blip> stallBlips = new List<Blip>();
     readonly List<Blip> vehicleBlips = new List<Blip>();
+    readonly List<Blip> radarBlips = new List<Blip>();
+    Transform mapBlipRoot;
+    Font mapBlipFont;
     static Sprite circleSprite, ringSprite, arrowSprite;
 
     void BuildMapTexture()
@@ -407,6 +410,8 @@ public class RickshawRideSystem : MonoBehaviour
             stallBlips.Add(MakeBlip(root, "GasBlip" + i, new Color(0.85f, 0.2f, 0.2f, 1f), "F", font));
         for (int i = 0; i < vehicles.Count; i++)
             vehicleBlips.Add(MakeBlip(root, "VehicleBlip" + i, new Color(0.2f, 0.5f, 0.9f, 1f), "R", font));
+        mapBlipRoot = root;
+        mapBlipFont = font;
 
         RectTransform arrow = MakePanel(root, "PlayerArrow", new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(34f, 34f));
         Image arrowImg = arrow.GetComponent<Image>();
@@ -471,6 +476,17 @@ public class RickshawRideSystem : MonoBehaviour
             Transform vt = vehicles[i].Transform;
             PlaceBlip(vehicleBlips[i], current == null && vt != null, vt != null ? vt.position : player, player, scale, cos, sin, edge);
         }
+
+        // speed radars (created as they appear, since the radars are placed a moment after start)
+        while (mapBlipRoot != null && radarBlips.Count < SpeedRadar.Count)
+        {
+            Blip rb = MakeBlip(mapBlipRoot, "RadarBlip" + radarBlips.Count, new Color(1f, 0.45f, 0.05f, 1f), "S", mapBlipFont);
+            rb.rt.SetSiblingIndex(customerBlip.rt.GetSiblingIndex()); // stay under the player arrow
+            rb.rt.localScale = new Vector3(0.85f, 0.85f, 1f);
+            radarBlips.Add(rb);
+        }
+        for (int i = 0; i < radarBlips.Count; i++)
+            PlaceBlip(radarBlips[i], i < SpeedRadar.Count, i < SpeedRadar.Count ? SpeedRadar.PositionOf(i) : player, player, scale, cos, sin, edge);
 
         // little "N" riding on the rim, pointing to north
         northRt.anchoredPosition = new Vector2(-sin, cos) * (mapDiameterUi * 0.5f - 4f);
@@ -817,7 +833,7 @@ public class RickshawRideSystem : MonoBehaviour
         }
         if (level.noViolations && contractViolations > 0)
         {
-            FailLevel("This contract allowed no red-light violations. You received " + contractViolations +
+            FailLevel("This contract allowed no traffic violations (red lights or speed radars). You received " + contractViolations +
                 (contractViolations == 1 ? " fine." : " fines."));
             return;
         }
@@ -974,6 +990,7 @@ public class RickshawRideSystem : MonoBehaviour
     {
         if (trafficLights != null)
             trafficLights.FineCharged -= OnTrafficFineCharged;
+        SpeedRadar.AnyFineCharged -= OnTrafficFineCharged;
 
         // leaving in the middle of a level counts as restarting it
         if (levelRunning) RestoreLevelStartMoney();
@@ -1093,7 +1110,9 @@ public class RickshawRideSystem : MonoBehaviour
     static bool controlsSeen; // reloading the city for a retry or the next level doesn't show them again
     float controlsHideAt = -1f;
     const float controlsShowTime = 3f;
-    Text coinText, fuelText, worldClockText;
+    Text coinText, fuelText, worldClockText, speedText;
+    GameObject speedPanel;
+    float shownSpeedKmh;
     RectTransform coinPanel, coinDeductionRt;
     Text coinDeductionText;
     Vector2 coinPanelHome;
@@ -1152,6 +1171,11 @@ public class RickshawRideSystem : MonoBehaviour
         fuelFillImage = fill.GetComponent<Image>();
         fuelFillImage.raycastTarget = false;
 
+        RectTransform speedRt = MakePanel(canvas, "SpeedometerPanel", new Vector2(0f, 1f), new Vector2(24f, -356f), new Vector2(330f, 70f));
+        speedText = MakeText(speedRt, font, 34, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 4f), new Vector2(-8f, -4f));
+        speedPanel = speedRt.gameObject;
+        speedPanel.SetActive(false); // shown only while driving
+
         RectTransform clockPanel = MakePanel(canvas, "WorldClockPanel", new Vector2(0f, 1f), new Vector2(24f, -286f), new Vector2(330f, 60f));
         worldClockText = MakeText(clockPanel, font, 27, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 3f), new Vector2(-8f, -3f));
     }
@@ -1166,6 +1190,7 @@ public class RickshawRideSystem : MonoBehaviour
         UpdateCoinDeductionAnimation();
         if (worldClockText != null)
             worldClockText.text = DayNightSystem.Instance != null ? DayNightSystem.Instance.FormattedTime : "DAY 1";
+        UpdateSpeedometer();
 
         TukTukFuelSystem f = null;
         if (current != null)
@@ -1193,6 +1218,64 @@ public class RickshawRideSystem : MonoBehaviour
         fuelFill.anchorMax = new Vector2(Mathf.Clamp01(n), 1f);
         fuelText.text = "FUEL  " + Mathf.RoundToInt(n * 100f) + "%" + (f.IsEmpty ? "  EMPTY" : (low ? "  LOW" : ""));
         fuelText.color = low ? c : Color.white;
+    }
+
+    void UpdateSpeedometer()
+    {
+        if (speedPanel == null) return;
+
+        TukTukController car = current != null ? current.driveController as TukTukController : null;
+        if (car == null)
+        {
+            if (speedPanel.activeSelf) speedPanel.SetActive(false);
+            shownSpeedKmh = 0f;
+            return;
+        }
+        if (!speedPanel.activeSelf) speedPanel.SetActive(true);
+
+        // smooth the reading so small physics jitter does not make the number flicker
+        shownSpeedKmh = Mathf.Lerp(shownSpeedKmh, car.SpeedKmh, 1f - Mathf.Exp(-8f * Time.unscaledDeltaTime));
+        int kmh = Mathf.RoundToInt(shownSpeedKmh);
+
+        const float radarWarningRange = 60f;
+        int limit;
+        bool radarAhead = SpeedRadar.TryGetLimitAhead(car.transform.position, FlatForward(car.transform), radarWarningRange, out limit);
+        bool over = radarAhead && kmh > limit;
+        string colour = over ? "#FF4D42" : (radarAhead ? "#FFD54A" : "#FFFFFF");
+        speedText.text = "<size=24>SPEED</size>  <color=" + colour + ">" + kmh + " km/h</color>" +
+            (radarAhead ? "  <size=24><color=#FFD54A>RADAR " + limit + "</color></size>" : "");
+    }
+
+    /// <summary>The vehicle the player is driving, or null while on foot.</summary>
+    public Transform DrivenVehicle { get { return current != null ? current.Transform : null; } }
+
+    /// <summary>
+    /// Where the player should go next: the waiting customer (isPickup) or the passenger's
+    /// drop-off point. Used by RideNavigator for the floating marker and the road arrows.
+    /// </summary>
+    public bool TryGetNavigationTarget(out Vector3 target, out bool isPickup)
+    {
+        target = Vector3.zero;
+        isPickup = false;
+        if (!started || paused) return false;
+        if (hasPassenger)
+        {
+            target = destination;
+            return true;
+        }
+        if (customer != null)
+        {
+            target = customer.transform.position;
+            isPickup = true;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Shows a short message in the toast bar (used by other systems such as speed radars).</summary>
+    public void ShowNotice(string message)
+    {
+        Toast(message);
     }
 
     /// <summary>Plays visible feedback on the gameplay coin HUD when coins are taken.</summary>
@@ -1290,6 +1373,7 @@ public class RickshawRideSystem : MonoBehaviour
         trafficLights = FindAnyObjectByType<TrafficLightSystem>();
         if (trafficLights != null)
             trafficLights.FineCharged += OnTrafficFineCharged;
+        SpeedRadar.AnyFineCharged += OnTrafficFineCharged;
         ResolveLandmarks();
         ResolveFuelStalls();
         BuildMapTexture(); // before the driver/customer exist, so they are not baked into the map picture
@@ -1298,6 +1382,7 @@ public class RickshawRideSystem : MonoBehaviour
         CreateCamera();
         BuildUi();
         BuildStallMarker();
+        if (GetComponent<RideNavigator>() == null) gameObject.AddComponent<RideNavigator>();
         ShowLevelIntro();
     }
 
@@ -1617,13 +1702,13 @@ public class RickshawRideSystem : MonoBehaviour
     {
         List<Landmark> options = new List<Landmark>();
         foreach (Landmark l in landmarks)
-            if (FlatDistance(l.position, tripStart) >= minTripDistance)
+            if (FlatDistance(l.position, tripStart) >= minTripDistance && NearRoad(l.position))
                 options.Add(l);
 
         if (options.Count > 0)
         {
             Landmark pick = options[Random.Range(0, options.Count)];
-            destination = pick.position;
+            destination = Roadside(pick.position);
             destinationLabel = pick.label;
             return;
         }
@@ -1637,6 +1722,30 @@ public class RickshawRideSystem : MonoBehaviour
             float d = FlatDistance(l.position, tripStart);
             if (d > best) { best = d; destination = l.position; destinationLabel = l.label; }
         }
+        destination = Roadside(destination);
+    }
+
+    // ---------- road helpers (drop-offs happen at the kerb, not inside parks or behind fences) ----------
+
+    CityTraffic roadMap;
+
+    bool TryRoadPoint(Vector3 p, out Vector3 roadPoint)
+    {
+        roadPoint = p;
+        if (roadMap == null) roadMap = FindAnyObjectByType<CityTraffic>();
+        return roadMap != null && roadMap.TryGetNearestRoadPoint(p, out roadPoint);
+    }
+
+    bool NearRoad(Vector3 p)
+    {
+        Vector3 r;
+        return !TryRoadPoint(p, out r) || FlatDistance(r, p) <= 25f; // no road data: accept everything
+    }
+
+    Vector3 Roadside(Vector3 p)
+    {
+        Vector3 r;
+        return TryRoadPoint(p, out r) ? r : p;
     }
 
     void DropOff()
