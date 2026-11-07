@@ -17,6 +17,20 @@ public class CityTraffic : MonoBehaviour
     [Tooltip("Rotation needed to make the imported GLB stand upright inside its physics wrapper.")]
     [SerializeField] Vector3 modelRotationCorrection = new Vector3(-90f, 0f, -90f);
 
+    [Header("City cars (Kenney Car Kit, loaded from a Resources folder)")]
+    [Tooltip("Resources folder with the car models. Leave empty for tuk-tuks only.")]
+    [SerializeField] string carModelsResourcesPath = "KenneyVehicles";
+    [Tooltip("Share of the NPC vehicles that are cars instead of tuk-tuks.")]
+    [SerializeField, Range(0f, 1f)] float carShare = 0.5f;
+    [Tooltip("Length of the sedan in meters. All car models share one scale, so trucks stay bigger than cars.")]
+    [SerializeField] float sedanLength = 4.2f;
+    [Tooltip("Extra turn (degrees) for the car models. Set 180 if the cars drive backwards.")]
+    [SerializeField] float carModelYaw = 0f;
+
+    GameObject[] carModels = new GameObject[0];
+    float carScale = 1f;
+    int nextCarModel;
+
     class Lane
     {
         public Vector3 a;
@@ -42,6 +56,41 @@ public class CityTraffic : MonoBehaviour
     TrafficLightSystem trafficLights;
     float baseDrivingSpeed;
 
+    /// <summary>A straight stretch of road found in the city, shared with systems such as speed radars.</summary>
+    public struct RoadRoute
+    {
+        public Vector3 start;
+        public Vector3 end;
+        public float width;
+        public float Length { get { return Vector3.Distance(start, end); } }
+    }
+
+    readonly List<RoadRoute> routes = new List<RoadRoute>();
+    readonly List<Bounds> roadTileBounds = new List<Bounds>();
+
+    /// <summary>World bounds of every road tile, used for route finding and sidewalk detection.</summary>
+    public IReadOnlyList<Bounds> RoadTiles { get { return roadTileBounds; } }
+
+    /// <summary>Closest point on any road tile to p (on the road surface). False until roads are mapped.</summary>
+    public bool TryGetNearestRoadPoint(Vector3 p, out Vector3 roadPoint)
+    {
+        roadPoint = p;
+        float best = float.MaxValue;
+        for (int i = 0; i < roadTileBounds.Count; i++)
+        {
+            Bounds b = roadTileBounds[i];
+            Vector3 q = new Vector3(Mathf.Clamp(p.x, b.min.x + 0.4f, b.max.x - 0.4f), b.max.y, Mathf.Clamp(p.z, b.min.z + 0.4f, b.max.z - 0.4f));
+            float dx = q.x - p.x, dz = q.z - p.z;
+            float d = dx * dx + dz * dz;
+            if (d < best) { best = d; roadPoint = q; }
+        }
+        return best < float.MaxValue;
+    }
+
+    /// <summary>Road routes found while building lanes. Empty until RoutesReady is true.</summary>
+    public IReadOnlyList<RoadRoute> Routes { get { return routes; } }
+    public bool RoutesReady { get; private set; }
+
     void Awake()
     {
         baseDrivingSpeed = drivingSpeed;
@@ -60,13 +109,16 @@ public class CityTraffic : MonoBehaviour
 
         trafficLights = FindAnyObjectByType<TrafficLightSystem>();
 
+        // Map the roads first so other systems (speed radars) can use them even without traffic.
+        BuildLanes();
+        RoutesReady = true;
+
         if (vehiclePrefab == null)
         {
             Debug.LogWarning("CityTraffic: no vehicle prefab assigned.");
             yield break;
         }
 
-        BuildLanes();
         if (lanes.Count == 0)
         {
             Debug.LogWarning("CityTraffic: no suitable road lanes were found.");
@@ -75,6 +127,7 @@ public class CityTraffic : MonoBehaviour
 
         trafficRoot = new GameObject("NPC Traffic").transform;
         trafficRoot.SetParent(transform, false);
+        LoadCarModels();
         SpawnCars();
     }
 
@@ -100,6 +153,8 @@ public class CityTraffic : MonoBehaviour
 
         // This city kit builds a road from many small square renderers rather than
         // one long mesh. Stitch touching tiles on shared rows and columns into routes.
+        roadTileBounds.Clear();
+        roadTileBounds.AddRange(roadTiles);
         BuildAxisRoutes(roadTiles, true);
         BuildAxisRoutes(roadTiles, false);
 
@@ -176,6 +231,12 @@ public class CityTraffic : MonoBehaviour
         if (length < minimumRoadLength)
             return;
 
+        RoadRoute route = new RoadRoute();
+        route.start = alongX ? new Vector3(start, y, cross) : new Vector3(cross, y, start);
+        route.end = alongX ? new Vector3(end, y, cross) : new Vector3(cross, y, end);
+        route.width = width;
+        routes.Add(route);
+
         float inset = Mathf.Min(4f, length * 0.08f);
         float laneOffset = Mathf.Clamp(width * 0.22f, 0.65f, 1.5f);
         Vector3 a = alongX
@@ -224,11 +285,19 @@ public class CityTraffic : MonoBehaviour
         for (int i = 0; i < wanted; i++)
         {
             int laneIndex = InitialLaneIndex(i, wanted);
-            GameObject go = new GameObject("NPC TukTuk " + (i + 1));
+            bool isCar = UsesCarModel(i);
+            string label = (isCar ? "NPC Car " : "NPC TukTuk ") + (i + 1);
+            GameObject go = new GameObject(label);
             go.transform.SetParent(trafficRoot, false);
-            go.name = "NPC TukTuk " + (i + 1);
+            go.name = label;
 
-            GameObject visual = Instantiate(vehiclePrefab, go.transform);
+            GameObject source = vehiclePrefab;
+            if (isCar)
+            {
+                source = carModels[nextCarModel % carModels.Length];
+                nextCarModel++;
+            }
+            GameObject visual = Instantiate(source, go.transform);
             visual.name = "Visual";
             visual.transform.localPosition = Vector3.zero;
             // Import correction makes the GLB upright; the extra yaw aligns its
@@ -236,6 +305,10 @@ public class CityTraffic : MonoBehaviour
             visual.transform.localRotation = Quaternion.Euler(0f, 90f, 0f)
                 * Quaternion.Euler(modelRotationCorrection);
             visual.transform.localScale = Vector3.one;
+
+            Vector3 carSize = Vector3.zero;
+            if (isCar)
+                carSize = FitCarModel(visual.transform);
 
             // The ambient vehicles are intentionally not driveable or fuel-consuming.
             foreach (TukTukController controller in visual.GetComponentsInChildren<TukTukController>(true))
@@ -251,22 +324,131 @@ public class CityTraffic : MonoBehaviour
             }
 
             BoxCollider box = go.AddComponent<BoxCollider>();
-            box.center = new Vector3(0f, 0.9f, 0f);
-            box.size = new Vector3(1.25f, 1.8f, 2.15f);
+            if (isCar)
+            {
+                box.center = new Vector3(0f, carSize.y * 0.5f, 0f);
+                box.size = carSize;
+            }
+            else
+            {
+                box.center = new Vector3(0f, 0.9f, 0f);
+                box.size = new Vector3(1.25f, 1.8f, 2.15f);
+            }
 
             Rigidbody body = go.AddComponent<Rigidbody>();
             body.isKinematic = true;
             body.interpolation = RigidbodyInterpolation.Interpolate;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
 
-            RickshawSkins.Skin skin = RickshawSkins.All[1 + i % 3];
-            RickshawSkins.Apply(visual.transform, "body", skin);
+            // every skin except the player's classic yellow, so the busier traffic looks varied
+            if (!isCar)
+            {
+                RickshawSkins.Skin skin = RickshawSkins.All[1 + i % (RickshawSkins.All.Length - 1)];
+                RickshawSkins.Apply(visual.transform, "body", skin);
+            }
 
             Car car = new Car();
             car.transform = go.transform;
             car.body = body;
             cars.Add(car);
             PlaceCar(car, laneIndex, i < 2, i);
+        }
+    }
+
+    void LoadCarModels()
+    {
+        carModels = new GameObject[0];
+        if (string.IsNullOrEmpty(carModelsResourcesPath) || carShare <= 0f)
+            return;
+        carModels = Resources.LoadAll<GameObject>(carModelsResourcesPath);
+        if (carModels.Length == 0)
+            return;
+
+        // One shared scale for every model: the sedan (or the first model) becomes sedanLength long.
+        GameObject reference = carModels[0];
+        for (int i = 0; i < carModels.Length; i++)
+            if (carModels[i].name == "sedan") reference = carModels[i];
+        Bounds b = LocalBounds(reference.transform, reference.transform);
+        float length = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+        carScale = length > 0.01f ? sedanLength / length : 1f;
+
+        // shuffle once so the mix of models differs between plays
+        for (int i = carModels.Length - 1; i > 0; i--)
+        {
+            int k = Random.Range(0, i + 1);
+            GameObject t = carModels[i];
+            carModels[i] = carModels[k];
+            carModels[k] = t;
+        }
+    }
+
+    // Spreads the cars evenly through the traffic (carShare 0.5 = every second vehicle).
+    bool UsesCarModel(int slot)
+    {
+        if (carModels.Length == 0 || carShare <= 0f) return false;
+        return Mathf.FloorToInt((slot + 1) * carShare) > Mathf.FloorToInt(slot * carShare);
+    }
+
+    // Stands a car model upright, points its length along the wrapper's forward axis, scales it
+    // and sets it on the road centred on the wrapper. Returns its size for the collider.
+    Vector3 FitCarModel(Transform visual)
+    {
+        Transform wrapper = visual.parent;
+        visual.localPosition = Vector3.zero;
+        visual.localRotation = Quaternion.Euler(0f, carModelYaw, 0f);
+        visual.localScale = Vector3.one * carScale;
+        Bounds b = LocalBounds(wrapper, visual);
+
+        if (b.size.y > b.size.x && b.size.y > b.size.z)
+        {
+            // exported Z-up: tip it upright
+            visual.localRotation = Quaternion.Euler(0f, carModelYaw, 0f) * Quaternion.Euler(-90f, 0f, 0f);
+            b = LocalBounds(wrapper, visual);
+        }
+        if (b.size.x > b.size.z * 1.15f)
+        {
+            // length lies sideways: turn it to face forward
+            visual.localRotation = Quaternion.Euler(0f, 90f, 0f) * visual.localRotation;
+            b = LocalBounds(wrapper, visual);
+        }
+
+        visual.localPosition = new Vector3(-b.center.x, -b.min.y, -b.center.z);
+        Vector3 size = b.size;
+        size.x = Mathf.Max(size.x, 0.5f);
+        size.y = Mathf.Max(size.y, 0.5f);
+        size.z = Mathf.Max(size.z, 0.5f);
+        return size;
+    }
+
+    // Bounds of every mesh under model, expressed in space's local coordinates. Works on prefab
+    // assets too, because it reads mesh bounds instead of renderer bounds.
+    static Bounds LocalBounds(Transform space, Transform model)
+    {
+        bool any = false;
+        Bounds result = new Bounds(Vector3.zero, Vector3.zero);
+        Matrix4x4 toSpace = space.worldToLocalMatrix;
+        foreach (MeshFilter filter in model.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (filter.sharedMesh == null) continue;
+            Encapsulate(ref result, ref any, toSpace * filter.transform.localToWorldMatrix, filter.sharedMesh.bounds);
+        }
+        foreach (SkinnedMeshRenderer skinned in model.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            if (skinned.sharedMesh == null) continue;
+            Encapsulate(ref result, ref any, toSpace * skinned.transform.localToWorldMatrix, skinned.sharedMesh.bounds);
+        }
+        return result;
+    }
+
+    static void Encapsulate(ref Bounds result, ref bool any, Matrix4x4 matrix, Bounds mesh)
+    {
+        Vector3 min = mesh.min, max = mesh.max;
+        for (int c = 0; c < 8; c++)
+        {
+            Vector3 corner = new Vector3((c & 1) == 0 ? min.x : max.x, (c & 2) == 0 ? min.y : max.y, (c & 4) == 0 ? min.z : max.z);
+            Vector3 p = matrix.MultiplyPoint3x4(corner);
+            if (!any) { result = new Bounds(p, Vector3.zero); any = true; }
+            else result.Encapsulate(p);
         }
     }
 

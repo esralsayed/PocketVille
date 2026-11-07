@@ -24,7 +24,7 @@ public static class RickshawLevels
             string text = "Serve " + customers + " customers in " + FormatTime(timeLimit);
             if (minAverageStars > 0f) text += "\nAverage rating: " + minAverageStars.ToString("0.#") + "+ stars";
             if (noCrashes) text += "\nNo passenger crashes";
-            if (noViolations) text += "\nNo red-light violations";
+            if (noViolations) text += "\nNo traffic violations (red lights, speed radars)";
             if (lowFuelStart) text += "\nStart with 35% fuel";
             if (nightShift) text += "\nNight shift";
             if (fareMultiplier > 1f) text += "\n" + fareMultiplier.ToString("0.0") + "x fares";

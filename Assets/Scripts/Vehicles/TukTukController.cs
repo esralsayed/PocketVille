@@ -73,6 +73,16 @@ public class TukTukController : MonoBehaviour
     bool changedEditorInput;
 #endif
 
+    /// <summary>Current ground speed in km/h, read by the HUD speedometer and the speed radars.</summary>
+    public float SpeedKmh
+    {
+        get
+        {
+            if (body == null) return 0f;
+            return Vector3.ProjectOnPlane(body.linearVelocity, Vector3.up).magnitude * 3.6f;
+        }
+    }
+
     void Awake()
     {
         body = GetComponent<Rigidbody>();
