@@ -809,6 +809,12 @@ public class RickshawRideSystem : MonoBehaviour
         Toast(level.nightShift ? "Night shift started — street lights are on." : level.title + " started.");
     }
 
+    void OnRadarFineCharged(int amount)
+    {
+        if (radarFinesCountAsViolations)
+            OnTrafficFineCharged(amount);
+    }
+
     void OnTrafficFineCharged(int amount)
     {
         if (levelRunning)
@@ -990,7 +996,7 @@ public class RickshawRideSystem : MonoBehaviour
     {
         if (trafficLights != null)
             trafficLights.FineCharged -= OnTrafficFineCharged;
-        SpeedRadar.AnyFineCharged -= OnTrafficFineCharged;
+        SpeedRadar.AnyFineCharged -= OnRadarFineCharged;
 
         // leaving in the middle of a level counts as restarting it
         if (levelRunning) RestoreLevelStartMoney();
@@ -1113,6 +1119,29 @@ public class RickshawRideSystem : MonoBehaviour
     Text coinText, fuelText, worldClockText, speedText;
     GameObject speedPanel;
     float shownSpeedKmh;
+
+    [Header("Speedometer")]
+    [Tooltip("Show the speed panel while driving.")]
+    [SerializeField] bool showSpeedometer = true;
+    [Tooltip("Panel position from the top-left corner of the screen (1920x1080 layout).")]
+    [SerializeField] Vector2 speedometerPosition = new Vector2(24f, -356f);
+    [SerializeField] Vector2 speedometerSize = new Vector2(330f, 70f);
+    [SerializeField] int speedometerFontSize = 34;
+    [Tooltip("Show RADAR and turn yellow when a radar is this close ahead (meters).")]
+    [SerializeField] float radarWarningRange = 60f;
+    [SerializeField] Color speedNormalColour = Color.white;
+    [SerializeField] Color speedRadarColour = new Color(1f, 0.835f, 0.29f, 1f);
+    [SerializeField] Color speedOverColour = new Color(1f, 0.3f, 0.26f, 1f);
+
+    [Header("Speed radar rules")]
+    [Tooltip("A radar fine counts as a violation, so 'No violations' contracts fail.")]
+    [SerializeField] bool radarFinesCountAsViolations = true;
+
+    [Header("Drop-offs")]
+    [Tooltip("Move each drop-off to the kerb next to its landmark instead of the landmark itself.")]
+    [SerializeField] bool dropOffAtKerb = true;
+    [Tooltip("Landmarks farther than this from a road are never used as drop-offs (meters).")]
+    [SerializeField] float maxLandmarkDistanceFromRoad = 25f;
     RectTransform coinPanel, coinDeductionRt;
     Text coinDeductionText;
     Vector2 coinPanelHome;
@@ -1171,8 +1200,8 @@ public class RickshawRideSystem : MonoBehaviour
         fuelFillImage = fill.GetComponent<Image>();
         fuelFillImage.raycastTarget = false;
 
-        RectTransform speedRt = MakePanel(canvas, "SpeedometerPanel", new Vector2(0f, 1f), new Vector2(24f, -356f), new Vector2(330f, 70f));
-        speedText = MakeText(speedRt, font, 34, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 4f), new Vector2(-8f, -4f));
+        RectTransform speedRt = MakePanel(canvas, "SpeedometerPanel", new Vector2(0f, 1f), speedometerPosition, speedometerSize);
+        speedText = MakeText(speedRt, font, speedometerFontSize, FontStyle.Bold, TextAnchor.MiddleCenter, new Vector2(8f, 4f), new Vector2(-8f, -4f));
         speedPanel = speedRt.gameObject;
         speedPanel.SetActive(false); // shown only while driving
 
@@ -1224,7 +1253,7 @@ public class RickshawRideSystem : MonoBehaviour
     {
         if (speedPanel == null) return;
 
-        TukTukController car = current != null ? current.driveController as TukTukController : null;
+        TukTukController car = showSpeedometer && current != null ? current.driveController as TukTukController : null;
         if (car == null)
         {
             if (speedPanel.activeSelf) speedPanel.SetActive(false);
@@ -1237,13 +1266,13 @@ public class RickshawRideSystem : MonoBehaviour
         shownSpeedKmh = Mathf.Lerp(shownSpeedKmh, car.SpeedKmh, 1f - Mathf.Exp(-8f * Time.unscaledDeltaTime));
         int kmh = Mathf.RoundToInt(shownSpeedKmh);
 
-        const float radarWarningRange = 60f;
         int limit;
         bool radarAhead = SpeedRadar.TryGetLimitAhead(car.transform.position, FlatForward(car.transform), radarWarningRange, out limit);
         bool over = radarAhead && kmh > limit;
-        string colour = over ? "#FF4D42" : (radarAhead ? "#FFD54A" : "#FFFFFF");
+        string colour = "#" + ColorUtility.ToHtmlStringRGB(over ? speedOverColour : (radarAhead ? speedRadarColour : speedNormalColour));
+        string radarColour = "#" + ColorUtility.ToHtmlStringRGB(speedRadarColour);
         speedText.text = "<size=24>SPEED</size>  <color=" + colour + ">" + kmh + " km/h</color>" +
-            (radarAhead ? "  <size=24><color=#FFD54A>RADAR " + limit + "</color></size>" : "");
+            (radarAhead ? "  <size=24><color=" + radarColour + ">RADAR " + limit + "</color></size>" : "");
     }
 
     /// <summary>The vehicle the player is driving, or null while on foot.</summary>
@@ -1373,7 +1402,7 @@ public class RickshawRideSystem : MonoBehaviour
         trafficLights = FindAnyObjectByType<TrafficLightSystem>();
         if (trafficLights != null)
             trafficLights.FineCharged += OnTrafficFineCharged;
-        SpeedRadar.AnyFineCharged += OnTrafficFineCharged;
+        SpeedRadar.AnyFineCharged += OnRadarFineCharged;
         ResolveLandmarks();
         ResolveFuelStalls();
         BuildMapTexture(); // before the driver/customer exist, so they are not baked into the map picture
@@ -1738,12 +1767,14 @@ public class RickshawRideSystem : MonoBehaviour
 
     bool NearRoad(Vector3 p)
     {
+        if (!dropOffAtKerb) return true;
         Vector3 r;
-        return !TryRoadPoint(p, out r) || FlatDistance(r, p) <= 25f; // no road data: accept everything
+        return !TryRoadPoint(p, out r) || FlatDistance(r, p) <= maxLandmarkDistanceFromRoad; // no road data: accept everything
     }
 
     Vector3 Roadside(Vector3 p)
     {
+        if (!dropOffAtKerb) return p;
         Vector3 r;
         return TryRoadPoint(p, out r) ? r : p;
     }

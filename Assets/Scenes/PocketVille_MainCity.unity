@@ -6506,6 +6506,7 @@ GameObject:
   - component: {fileID: 35262132}
   - component: {fileID: 35262133}
   - component: {fileID: 35262134}
+  - component: {fileID: 35262135}
   m_Layer: 0
   m_Name: RickshawRideSystem
   m_TagString: Untagged
@@ -6584,6 +6585,32 @@ MonoBehaviour:
   cameraDistance: 7
   cameraPitch: 18
   orbitSensitivity: 0.15
+  showSpeedometer: 1
+  speedometerPosition: {x: 24, y: -356}
+  speedometerSize: {x: 330, y: 70}
+  speedometerFontSize: 40
+  radarWarningRange: 100
+  speedNormalColour: {r: 1, g: 1, b: 1, a: 1}
+  speedRadarColour: {r: 1, g: 0.835, b: 0.29, a: 1}
+  speedOverColour: {r: 1, g: 0.3, b: 0.26, a: 1}
+  radarFinesCountAsViolations: 1
+  dropOffAtKerb: 1
+  maxLandmarkDistanceFromRoad: 25
+--- !u!4 &35262130
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 35262128}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &35262131
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6594,8 +6621,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 565b71d429ba40344aae7f543552d45a, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   characterPrefabs:
   - {fileID: 6415561937286359620, guid: d1255cdc2aa17e64dac91efa5124e941, type: 3}
   - {fileID: 3560489353750393262, guid: 8cf71091043ddd54d9341585de596b13, type: 3}
@@ -6617,8 +6644,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d7fc9c2a5e3e65d4f89618068cf96ac3, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   redLightFine: 10
   greenSeconds: 8
   yellowSeconds: 2
@@ -6633,14 +6660,19 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 73df17f870de4a94a9fe344e902480c1, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   vehiclePrefab: {fileID: -6689036041284674117, guid: 5bb43b59d60720848bb6dd86992ac3ed, type: 3}
   vehicleCount: 12
   drivingSpeed: 5
   turnSpeed: 5
   obstacleDistance: 7
   minimumRoadLength: 24
+  modelRotationCorrection: {x: -90, y: 0, z: -90}
+  carModelsResourcesPath: KenneyVehicles
+  carShare: 0.5
+  sedanLength: 4.2
+  carModelYaw: 0
 --- !u!114 &35262134
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6651,8 +6683,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0f7377e683b74288ac0cf892825e87ac, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   startingHour: 8
   realSecondsPerDay: 1080
   sun: {fileID: 190857409}
@@ -6666,21 +6698,31 @@ MonoBehaviour:
   streetLightRange: 15
   streetLightIntensity: 5
   streetLightColor: {r: 1, g: 0.72, b: 0.34, a: 1}
---- !u!4 &35262130
-Transform:
+--- !u!114 &35262135
+MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 35262128}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3c010e410f8bc243afff6fe5e1d55f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  showTargetMarker: 1
+  showRoadArrows: 1
+  showWrongWayHint: 1
+  markerHeight: 2.6
+  arrowSize: 1
+  wrongWayNoticeSeconds: 6
+  arrowCount: 12
+  arrowSpacing: 4.5
+  firstArrowDistance: 5
+  replanInterval: 0.4
+  hideArrowsWithin: 12
+  pickupColour: {r: 1, g: 0.82, b: 0.18, a: 1}
+  dropOffColour: {r: 0.25, g: 0.85, b: 1, a: 1}
 --- !u!1001 &35409301
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -296629,6 +296671,62 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 4631891537778504, guid: b0bb4b9691721cf4791e1124d867edd8, type: 3}
   m_PrefabInstance: {fileID: 1530112004}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1530457141
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1530457143}
+  - component: {fileID: 1530457142}
+  m_Layer: 0
+  m_Name: Speed Radars
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1530457142
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1530457141}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1401aecfc42e68449ff70733ec66311, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  autoPlaceRadars: 1
+  radarCount: 3
+  minimumRouteLength: 40
+  minimumSpacing: 70
+  clearanceFromStart: 30
+  speedLimitKmh: 25
+  fineAmount: 15
+  cooldown: 3
+  warningDistance: 100
+  paintRoadStripes: 1
+  showLabel: 1
+  announceAtStart: 1
+--- !u!4 &1530457143
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1530457141}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1530578309
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -332538,6 +332636,10 @@ MonoBehaviour:
   centerOfMass: {x: 0, y: 0.35, z: -0.15}
   uprightStrength: 10
   uprightDamping: 3.5
+  curbProbeHeight: 0.18
+  curbProbeDistance: 1.15
+  curbLiftSpeed: 1.8
+  curbPushAcceleration: 8
 --- !u!114 &1707982955
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -408777,6 +408879,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   moneyText: {fileID: 1931446189}
+  flashSeconds: 3
+  flashInterval: 0.25
+  deductionTextColor: {r: 1, g: 0.15, b: 0.12, a: 1}
+  deductionBoxTint: {r: 1, g: 0.3, b: 0.3, a: 1}
 --- !u!114 &2085371709
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -423067,3 +423173,4 @@ SceneRoots:
   - {fileID: 35262130}
   - {fileID: 92396337}
   - {fileID: 1003173248}
+  - {fileID: 1530457143}

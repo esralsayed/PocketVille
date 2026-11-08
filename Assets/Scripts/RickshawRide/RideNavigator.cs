@@ -8,6 +8,20 @@ using UnityEngine;
 /// </summary>
 public class RideNavigator : MonoBehaviour
 {
+    [Header("What to show")]
+    [Tooltip("Floating arrow and ring over the customer or drop-off.")]
+    [SerializeField] bool showTargetMarker = true;
+    [Tooltip("Arrows on the road along the route while driving.")]
+    [SerializeField] bool showRoadArrows = true;
+    [Tooltip("Big turn-around arrow and message when driving away from the route.")]
+    [SerializeField] bool showWrongWayHint = true;
+    [Tooltip("Height of the floating arrow above the target (meters).")]
+    [SerializeField] float markerHeight = 2.6f;
+    [Tooltip("Size of the road arrows (1 = normal).")]
+    [SerializeField] float arrowSize = 1f;
+    [Tooltip("Seconds between 'wrong way' messages.")]
+    [SerializeField] float wrongWayNoticeSeconds = 6f;
+
     [Header("Road arrows")]
     [SerializeField] int arrowCount = 12;
     [SerializeField] float arrowSpacing = 4.5f;
@@ -62,10 +76,10 @@ public class RideNavigator : MonoBehaviour
         Vector3 target;
         bool pickup;
         bool hasTarget = ride.TryGetNavigationTarget(out target, out pickup);
-        UpdateMarker(hasTarget, target, pickup);
+        UpdateMarker(hasTarget && showTargetMarker, target, pickup);
 
         Transform vehicle = ride.DrivenVehicle;
-        bool showArrows = hasTarget && vehicle != null && EnsureGraph() &&
+        bool showArrows = showRoadArrows && hasTarget && vehicle != null && EnsureGraph() &&
             FlatDistance(vehicle.position, target) > hideArrowsWithin;
         if (!showArrows)
         {
@@ -90,7 +104,7 @@ public class RideNavigator : MonoBehaviour
     void UpdateTurnAround(Transform vehicle, Color colour)
     {
         bool wrongWay = false;
-        if (route.Count >= 2)
+        if (showWrongWayHint && route.Count >= 2)
         {
             Vector3 pos, dir;
             SampleRoute(Mathf.Min(routeStartS + 3f, Mathf.Max(0f, routeLength - 0.5f)), out pos, out dir);
@@ -109,7 +123,7 @@ public class RideNavigator : MonoBehaviour
 
         if (Time.unscaledTime >= nextTurnNotice)
         {
-            nextTurnNotice = Time.unscaledTime + 6f;
+            nextTurnNotice = Time.unscaledTime + wrongWayNoticeSeconds;
             ride.ShowNotice("Wrong way - turn around to follow the arrows");
         }
     }
@@ -162,7 +176,7 @@ public class RideNavigator : MonoBehaviour
         SetColour(markerRingMat, c, 0.35f);
         marker.transform.position = target;
         // the arrow floats above a standing person and bobs so it catches the eye
-        markerArrow.localPosition = new Vector3(0f, 2.6f + Mathf.Sin(Time.unscaledTime * 3f) * 0.35f, 0f);
+        markerArrow.localPosition = new Vector3(0f, markerHeight + Mathf.Sin(Time.unscaledTime * 3f) * 0.35f, 0f);
         markerArrow.Rotate(0f, 90f * Time.unscaledDeltaTime, 0f, Space.Self);
     }
 
@@ -456,6 +470,7 @@ public class RideNavigator : MonoBehaviour
             Transform arrow = arrows[shown];
             if (!arrow.gameObject.activeSelf) arrow.gameObject.SetActive(true);
             arrow.position = pos + Vector3.up * 0.08f;
+            arrow.localScale = Vector3.one * Mathf.Max(0.1f, arrowSize);
             if (dir.sqrMagnitude > 0.0001f) arrow.rotation = Quaternion.LookRotation(dir, Vector3.up);
 
             // a bright pulse runs forward along the arrows

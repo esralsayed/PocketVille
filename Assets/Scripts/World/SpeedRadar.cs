@@ -3,19 +3,32 @@ using UnityEngine;
 
 /// <summary>
 /// Roadside speed camera. Fines the tuk-tuk the player is driving once per pass when it enters
-/// the zone above the posted limit. Coins are taken the same way red-light fines take them, and
-/// every violation is reported so "no violations" contracts can fail.
+/// the zone above the posted limit, and reports every violation so "no violations" contracts can
+/// fail. Either placed automatically by SpeedRadarNetwork, or by hand from
+/// GameObject > PocketVille > Speed Radar: move and turn it in the Scene view so the orange zone
+/// covers the road (X = across the road), and set its rules below.
 /// </summary>
 [RequireComponent(typeof(BoxCollider))]
 public class SpeedRadar : MonoBehaviour
 {
+    [Header("Rules")]
     [SerializeField] int speedLimitKmh = 25;
     [SerializeField] int fineAmount = 15;
     [Tooltip("Seconds before this radar can fine again, so one pass never fines twice.")]
     [SerializeField] float cooldown = 3f;
     [Tooltip("Readings this close above the limit are forgiven (km/h).")]
     [SerializeField] float tolerance = 1f;
-    [Tooltip("Optional lamp that flashes when a fine is taken.")]
+    [Tooltip("Warn the driver when they come this close to the radar, heading towards it (meters).")]
+    [SerializeField] float warningDistance = 70f;
+
+    [Header("Model (hand-placed radars)")]
+    [Tooltip("Build the pole, camera, signs and lamp when the game starts.")]
+    [SerializeField] bool buildModel = true;
+    [Tooltip("Paint red-and-white stripes across the road at the zone.")]
+    [SerializeField] bool paintRoadStripes = true;
+    [Tooltip("Show the SPEED RADAR label above the camera.")]
+    [SerializeField] bool showLabel = true;
+    [Tooltip("Optional lamp that flashes when a fine is taken. Filled in automatically when the model is built.")]
     [SerializeField] Renderer flashLamp;
 
     /// <summary>Raised on every radar violation with the coins actually paid (0 if the player had none).</summary>
@@ -29,6 +42,9 @@ public class SpeedRadar : MonoBehaviour
     float nextFineTime;
     float flashUntil;
     bool lampLit;
+    bool warned;
+    bool builtByCode;
+    bool ownsLampMaterial;
     Material lampMaterial;
     RickshawRideSystem rideSystem;
 
@@ -40,22 +56,43 @@ public class SpeedRadar : MonoBehaviour
     /// <summary>World position of radar i (0..Count-1).</summary>
     public static Vector3 PositionOf(int i) { return activeRadars[i].transform.position; }
 
-    [Tooltip("Warn the driver when they come this close to the radar, heading towards it (meters).")]
-    [SerializeField] float warningDistance = 70f;
-    bool warned;
-
-    /// <summary>Sets the radar up when it is created from code.</summary>
-    public void Configure(int limitKmh, int fine, Renderer lamp)
+    /// <summary>Sets the radar up when SpeedRadarNetwork creates it from code.</summary>
+    public void Configure(int limitKmh, int fine, float cooldownSeconds, float warnDistance, Renderer lamp)
     {
+        builtByCode = true;
         speedLimitKmh = Mathf.Max(1, limitKmh);
         fineAmount = Mathf.Max(0, fine);
+        cooldown = Mathf.Max(0f, cooldownSeconds);
+        warningDistance = Mathf.Max(0f, warnDistance);
         flashLamp = lamp;
+        ownsLampMaterial = true;
         PrepareLamp();
+    }
+
+    void Reset()
+    {
+        // sensible zone when the component is added by hand
+        BoxCollider zone = GetComponent<BoxCollider>();
+        zone.isTrigger = true;
+        zone.center = new Vector3(0f, 1.5f, 0f);
+        zone.size = new Vector3(10f, 4f, 4f);
     }
 
     void Awake()
     {
         GetComponent<BoxCollider>().isTrigger = true;
+    }
+
+    void Start()
+    {
+        // a hand-placed radar builds its own model from its zone
+        if (!builtByCode && buildModel && flashLamp == null)
+        {
+            BoxCollider zone = GetComponent<BoxCollider>();
+            flashLamp = SpeedRadarNetwork.BuildRadarModel(transform, zone.size.x, zone.size.x * 0.5f + 1.1f,
+                speedLimitKmh, paintRoadStripes, showLabel);
+            ownsLampMaterial = true;
+        }
         PrepareLamp();
     }
 
@@ -73,7 +110,9 @@ public class SpeedRadar : MonoBehaviour
     void PrepareLamp()
     {
         if (flashLamp == null || lampMaterial != null) return;
-        lampMaterial = flashLamp.material; // per-radar copy so lamps flash independently
+        // a model built for this radar has its own material (shared by its front and back lamp);
+        // a lamp you assigned yourself gets a copy so the original material is never changed
+        lampMaterial = ownsLampMaterial ? flashLamp.sharedMaterial : flashLamp.material;
         SetLamp(false);
     }
 
@@ -91,14 +130,12 @@ public class SpeedRadar : MonoBehaviour
         if (Time.time < nextFineTime) return;
 
         float speed = car.SpeedKmh;
+        nextFineTime = Time.time + cooldown;
         if (speed <= speedLimitKmh + tolerance)
         {
-            nextFineTime = Time.time + cooldown;
             Notify("Speed radar: " + Mathf.RoundToInt(speed) + " km/h - OK (limit " + speedLimitKmh + ")");
             return;
         }
-
-        nextFineTime = Time.time + cooldown;
         ChargeFine(speed);
     }
 
@@ -113,9 +150,7 @@ public class SpeedRadar : MonoBehaviour
                 paid = 0;
         }
 
-        if (rideSystem == null)
-            rideSystem = FindAnyObjectByType<RickshawRideSystem>();
-        if (rideSystem != null)
+        if (FindRide() != null)
         {
             if (paid > 0)
                 rideSystem.ShowCoinDeduction(paid);
@@ -127,20 +162,24 @@ public class SpeedRadar : MonoBehaviour
         AnyFineCharged?.Invoke(paid);
     }
 
-    void Notify(string message)
+    RickshawRideSystem FindRide()
     {
         if (rideSystem == null)
             rideSystem = FindAnyObjectByType<RickshawRideSystem>();
-        if (rideSystem != null)
+        return rideSystem;
+    }
+
+    void Notify(string message)
+    {
+        if (FindRide() != null)
             rideSystem.ShowNotice(message);
     }
 
     // one heads-up per approach: when the driver gets close while heading to the radar
     void CheckApproach()
     {
-        if (rideSystem == null)
-            rideSystem = FindAnyObjectByType<RickshawRideSystem>();
-        Transform car = rideSystem != null ? rideSystem.DrivenVehicle : null;
+        if (warningDistance <= 0f) return;
+        Transform car = FindRide() != null ? rideSystem.DrivenVehicle : null;
         if (car == null) return;
 
         Vector3 delta = transform.position - car.position;
@@ -172,6 +211,21 @@ public class SpeedRadar : MonoBehaviour
         Color c = lit ? LampFlash : LampIdle;
         if (lampMaterial.HasProperty("_BaseColor")) lampMaterial.SetColor("_BaseColor", c);
         if (lampMaterial.HasProperty("_Color")) lampMaterial.SetColor("_Color", c);
+    }
+
+    // Shows the zone (orange) and where the pole will stand (white) in the Scene view.
+    void OnDrawGizmos()
+    {
+        BoxCollider zone = GetComponent<BoxCollider>();
+        if (zone == null) return;
+        Gizmos.matrix = transform.localToWorldMatrix;
+        Gizmos.color = new Color(1f, 0.55f, 0.1f, 0.25f);
+        Gizmos.DrawCube(zone.center, zone.size);
+        Gizmos.color = new Color(1f, 0.55f, 0.1f, 1f);
+        Gizmos.DrawWireCube(zone.center, zone.size);
+        Gizmos.color = Color.white;
+        Gizmos.DrawWireSphere(new Vector3(zone.size.x * 0.5f + 1.1f, 1.6f, 0f), 0.3f);
+        Gizmos.DrawLine(new Vector3(zone.size.x * 0.5f + 1.1f, 0f, 0f), new Vector3(zone.size.x * 0.5f + 1.1f, 3.2f, 0f));
     }
 
     /// <summary>
