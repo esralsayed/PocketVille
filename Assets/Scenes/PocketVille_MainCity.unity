@@ -6589,7 +6589,7 @@ MonoBehaviour:
   speedometerPosition: {x: 24, y: -356}
   speedometerSize: {x: 330, y: 70}
   speedometerFontSize: 40
-  radarWarningRange: 100
+  radarWarningRange: 60
   speedNormalColour: {r: 1, g: 1, b: 1, a: 1}
   speedRadarColour: {r: 1, g: 0.835, b: 0.29, a: 1}
   speedOverColour: {r: 1, g: 0.3, b: 0.26, a: 1}
@@ -296708,7 +296708,7 @@ MonoBehaviour:
   speedLimitKmh: 25
   fineAmount: 15
   cooldown: 3
-  warningDistance: 100
+  warningDistance: 70
   paintRoadStripes: 1
   showLabel: 1
   announceAtStart: 1
