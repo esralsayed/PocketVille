@@ -5,6 +5,11 @@ using UnityEngine;
 /// Guides the player to the current job. A floating arrow marks the waiting customer (yellow) or
 /// the drop-off point (blue), and while driving, arrows on the road show the shortest street
 /// route there. Added automatically by RickshawRideSystem; reads the road tiles from CityTraffic.
+///
+/// A route is planned once per target (customer, drop-off, gas station, vehicle) and is NOT
+/// re-planned while the player drives. If the player heads the wrong way, a U-turn arrow and a
+/// "Wrong way" notice tell them to turn around. GetRouteDirections() turns a road route into
+/// "Go left / Go right / Go forward / Go back" text for the on-screen guidance.
 /// </summary>
 public class RideNavigator : MonoBehaviour
 {
@@ -12,16 +17,24 @@ public class RideNavigator : MonoBehaviour
     [SerializeField] int arrowCount = 12;
     [SerializeField] float arrowSpacing = 4.5f;
     [SerializeField] float firstArrowDistance = 5f;
-    [Tooltip("Seconds between route updates.")]
-    [SerializeField] float replanInterval = 0.4f;
     [Tooltip("Road arrows hide once the target is this close (meters).")]
     [SerializeField] float hideArrowsWithin = 12f;
+
+    [Header("Turn directions")]
+    [Tooltip("How far the road must bend (degrees) to count as a turn in the guidance text.")]
+    [SerializeField] float turnAngle = 35f;
+    [Tooltip("If the player faces this far (degrees) off the road, they are told to turn now.")]
+    [SerializeField] float offHeadingAngle = 45f;
 
     [Header("Colours")]
     [SerializeField] Color pickupColour = new Color(1f, 0.82f, 0.18f, 1f);
     [SerializeField] Color dropOffColour = new Color(0.25f, 0.85f, 1f, 1f);
 
+    /// <summary>Route key used by the road arrows; pass it to GetRouteDirections so text and arrows agree.</summary>
+    public const string RideRouteKey = "ride";
+
     const float GridCell = 6f;
+    const float TargetMovedThreshold = 1f;
 
     RickshawRideSystem ride;
     CityTraffic traffic;
@@ -37,15 +50,15 @@ public class RideNavigator : MonoBehaviour
     Transform markerArrow;
     Material markerArrowMat, markerRingMat;
 
-    // road arrows
+    // planned routes, one per target kind (ride, gas station, vehicle on foot)
+    readonly Dictionary<string, NavRoute> routes = new Dictionary<string, NavRoute>();
+
+    // road arrows + wrong-way warning
     readonly List<Transform> arrows = new List<Transform>();
     readonly List<Material> arrowMats = new List<Material>();
-    readonly List<Vector3> route = new List<Vector3>();
-    float nextPlanTime;
-    float routeStartS, routeLength, nextTurnNotice;
+    float nextTurnNotice;
     GameObject turnArrow;
     Material turnArrowMat;
-    Vector3 plannedTarget = new Vector3(float.MaxValue, 0f, float.MaxValue);
 
     void Start()
     {
@@ -65,43 +78,132 @@ public class RideNavigator : MonoBehaviour
         UpdateMarker(hasTarget, target, pickup);
 
         Transform vehicle = ride.DrivenVehicle;
-        bool showArrows = hasTarget && vehicle != null && EnsureGraph() &&
-            FlatDistance(vehicle.position, target) > hideArrowsWithin;
-        if (!showArrows)
+        if (!hasTarget || vehicle == null)
         {
-            SetArrowsVisible(0);
-            route.Clear();
-            if (turnArrow != null && turnArrow.activeSelf) turnArrow.SetActive(false);
+            // on foot or no job: forget the ride route so the next drive plans a fresh one
+            ForgetRoute(RideRouteKey);
+            HideRoadArrows();
             return;
         }
 
-        if (Time.unscaledTime >= nextPlanTime || FlatDistance(target, plannedTarget) > 1f)
+        NavRoute route = GetRoute(RideRouteKey, vehicle.position, Flat(vehicle.forward), target);
+        if (route == null || FlatDistance(vehicle.position, target) <= hideArrowsWithin)
         {
-            PlanRoute(vehicle.position, Flat(vehicle.forward), target);
-            plannedTarget = target;
-            nextPlanTime = Time.unscaledTime + replanInterval;
+            HideRoadArrows();
+            return;
         }
+
         Color colour = pickup ? pickupColour : dropOffColour;
-        LayArrows(vehicle.position, colour);
-        UpdateTurnAround(vehicle, colour);
+        route.Project(vehicle.position);
+        LayArrows(route, colour);
+        UpdateTurnAround(route, vehicle, colour);
     }
 
-    // When the route runs the other way, show a big U-turn arrow in front of the car and say so.
-    void UpdateTurnAround(Transform vehicle, Color colour)
+    void HideRoadArrows()
     {
-        bool wrongWay = false;
-        if (route.Count >= 2)
+        SetArrowsVisible(0);
+        if (turnArrow != null && turnArrow.activeSelf) turnArrow.SetActive(false);
+    }
+
+    // ---------- routes ----------
+
+    /// <summary>
+    /// Returns the road route stored under 'key', planning it only when there is none yet or the
+    /// target has moved. The route is never re-planned just because the player moved or turned.
+    /// </summary>
+    NavRoute GetRoute(string key, Vector3 from, Vector3 forward, Vector3 to)
+    {
+        if (!EnsureGraph()) return null;
+
+        NavRoute route;
+        if (!routes.TryGetValue(key, out route))
         {
-            Vector3 pos, dir;
-            SampleRoute(Mathf.Min(routeStartS + 3f, Mathf.Max(0f, routeLength - 0.5f)), out pos, out dir);
-            wrongWay = Vector3.Dot(Flat(vehicle.forward), dir) < -0.35f;
+            route = new NavRoute();
+            routes.Add(key, route);
         }
+        if (!route.planned || FlatDistance(route.target, to) > TargetMovedThreshold)
+        {
+            PlanRoute(from, forward, to, route.points);
+            route.target = to;
+            route.planned = true;
+        }
+        return route.points.Count >= 2 ? route : null;
+    }
+
+    /// <summary>Drops the stored route under 'key' so the next request plans a new one.</summary>
+    public void ForgetRoute(string key)
+    {
+        routes.Remove(key);
+    }
+
+    /// <summary>
+    /// Guidance along the road route from 'from' to 'to': "Go forward", "Go left", "Go right" or
+    /// "Go back", plus the meters until that move. 'forward' is the way the player is facing.
+    /// Returns false when there is no road route (target very close, or road map not ready).
+    /// </summary>
+    public bool GetRouteDirections(string key, Vector3 from, Vector3 forward, Vector3 to,
+                                   out string direction, out float meters)
+    {
+        direction = null;
+        meters = 0f;
+        forward = Flat(forward);
+        if (FlatDistance(from, to) <= hideArrowsWithin) return false;
+
+        NavRoute route = GetRoute(key, from, forward, to);
+        if (route == null) return false;
+
+        route.Project(from);
+        Vector3 pos, roadDir;
+        route.Sample(Mathf.Min(route.startS + 3f, Mathf.Max(0f, route.length - 0.5f)), out pos, out roadDir);
+
+        // facing against the road route: turn around
+        if (Vector3.Dot(forward, roadDir) < -0.35f)
+        {
+            direction = "Go back";
+            meters = route.length - route.startS;
+            return true;
+        }
+
+        // facing well off the road route (e.g. at a junction or after walking off): turn now
+        float headingOff = Vector3.SignedAngle(forward, roadDir, Vector3.up);
+        if (Mathf.Abs(headingOff) > offHeadingAngle)
+        {
+            direction = headingOff > 0f ? "Go right" : "Go left";
+            meters = 0f;
+            return true;
+        }
+
+        // otherwise: the next bend in the road route
+        float turnAt;
+        float bend = route.NextBend(route.startS, roadDir, turnAngle, out turnAt);
+        if (bend == 0f)
+        {
+            direction = "Go forward";
+            meters = route.length - route.startS;
+        }
+        else
+        {
+            direction = bend > 0f ? "Go right" : "Go left";
+            meters = turnAt - route.startS;
+        }
+        return true;
+    }
+
+    // ---------- wrong-way warning ----------
+
+    // When the route runs the other way, show a big U-turn arrow in front of the car and say so.
+    void UpdateTurnAround(NavRoute route, Transform vehicle, Color colour)
+    {
+        Vector3 pos, dir;
+        route.Sample(Mathf.Min(route.startS + 3f, Mathf.Max(0f, route.length - 0.5f)), out pos, out dir);
+        bool wrongWay = Vector3.Dot(Flat(vehicle.forward), dir) < -0.35f;
+
         if (turnArrow.activeSelf != wrongWay) turnArrow.SetActive(wrongWay);
         if (!wrongWay) return;
 
         Vector3 forward = Flat(vehicle.forward);
         Vector3 at = vehicle.position + forward * 6f;
-        if (route.Count > 0) at.y = route[0].y;
+        at.y = route.points[0].y;
         turnArrow.transform.position = at + Vector3.up * 0.1f;
         turnArrow.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
         float pulse = 0.6f + 0.4f * Mathf.Sin(Time.unscaledTime * 6f);
@@ -326,22 +428,41 @@ public class RideNavigator : MonoBehaviour
         return any;
     }
 
-    // A* over the road tiles
-    void PlanRoute(Vector3 from, Vector3 forward, Vector3 to)
-    {
-        route.Clear();
-        // start from the road just ahead of the vehicle, so the route prefers driving on
-        // (around the block) over doubling back through the car
-        int start = NearestNode(from + forward * 6f);
-        if (start < 0) start = NearestNode(from);
-        int goal = NearestNode(to);
-        if (start < 0 || goal < 0) return;
+    // ---------- route planning (A* over the road tiles) ----------
 
+    /// <summary>Plans the shortest road route from 'from' to 'to' into 'result' (cleared first).</summary>
+    void PlanRoute(Vector3 from, Vector3 forward, Vector3 to, List<Vector3> result)
+    {
+        result.Clear();
+        int start, goal;
+        if (!FindStartAndGoal(from, forward, to, out start, out goal)) return;
+
+        int[] parent;
+        if (!RunAStar(start, goal, from, forward, out parent)) return;
+
+        List<Vector3> path = BuildPath(start, goal, parent);
+        SmoothRoute(path, result);
+    }
+
+    // Start from the road just ahead of the player, so the first route prefers driving on
+    // (around the block) over doubling back through the car.
+    bool FindStartAndGoal(Vector3 from, Vector3 forward, Vector3 to, out int start, out int goal)
+    {
+        start = NearestNode(from + forward * 6f);
+        if (start < 0) start = NearestNode(from);
+        goal = NearestNode(to);
+        return start >= 0 && goal >= 0;
+    }
+
+    // Standard A*. Returns false when the goal cannot be reached over connected road.
+    bool RunAStar(int start, int goal, Vector3 from, Vector3 forward, out int[] parent)
+    {
         int n = nodes.Count;
         float[] g = new float[n];
-        int[] parent = new int[n];
+        parent = new int[n];
         bool[] closed = new bool[n];
         for (int i = 0; i < n; i++) { g[i] = float.MaxValue; parent[i] = -1; }
+
         MinHeap open = new MinHeap();
         g[start] = 0f;
         open.Push(start, FlatDistance(nodes[start], nodes[goal]));
@@ -352,16 +473,13 @@ public class RideNavigator : MonoBehaviour
             if (cur == goal) break;
             if (closed[cur]) continue;
             closed[cur] = true;
+
             List<int> next = links[cur];
             for (int k = 0; k < next.Count; k++)
             {
                 int nb = next[k];
                 if (closed[nb]) continue;
-                float cost = g[cur] + FlatDistance(nodes[cur], nodes[nb]);
-                Vector3 rel = nodes[nb] - from;
-                rel.y = 0f;
-                if (rel.magnitude < 14f && Vector3.Dot(rel, forward) < -1f)
-                    cost += 40f; // going back past the car means a U-turn: only if it is clearly shorter
+                float cost = g[cur] + StepCost(cur, nb, from, forward);
                 if (cost < g[nb])
                 {
                     g[nb] = cost;
@@ -370,29 +488,49 @@ public class RideNavigator : MonoBehaviour
                 }
             }
         }
-        if (start != goal && parent[goal] < 0) return; // no connected road found
+        return start == goal || parent[goal] >= 0;
+    }
 
-        List<Vector3> raw = new List<Vector3>();
+    // Distance between two road tiles, plus a penalty for road just behind the player:
+    // going back past the car means a U-turn, so only do it if it is clearly shorter.
+    float StepCost(int fromNode, int toNode, Vector3 playerPos, Vector3 playerForward)
+    {
+        float cost = FlatDistance(nodes[fromNode], nodes[toNode]);
+        Vector3 rel = nodes[toNode] - playerPos;
+        rel.y = 0f;
+        if (rel.magnitude < 14f && Vector3.Dot(rel, playerForward) < -1f)
+            cost += 40f;
+        return cost;
+    }
+
+    // Walks the parent links back from the goal and returns the node positions start -> goal.
+    List<Vector3> BuildPath(int start, int goal, int[] parent)
+    {
+        List<Vector3> path = new List<Vector3>();
         for (int at = goal; at >= 0; at = parent[at])
         {
-            raw.Add(nodes[at]);
+            path.Add(nodes[at]);
             if (at == start) break;
         }
-        raw.Reverse();
+        path.Reverse();
+        return path;
+    }
 
-        // smooth the tile-to-tile zigzag into a driving line
-        for (int i = 0; i < raw.Count; i++)
+    // Smooths the tile-to-tile zigzag into a driving line (5-point moving average, ends kept).
+    static void SmoothRoute(List<Vector3> path, List<Vector3> result)
+    {
+        for (int i = 0; i < path.Count; i++)
         {
-            if (i == 0 || i == raw.Count - 1) { route.Add(raw[i]); continue; }
+            if (i == 0 || i == path.Count - 1) { result.Add(path[i]); continue; }
             Vector3 avg = Vector3.zero;
             int count = 0;
             for (int w = -2; w <= 2; w++)
             {
-                int j = Mathf.Clamp(i + w, 0, raw.Count - 1);
-                avg += raw[j];
+                int j = Mathf.Clamp(i + w, 0, path.Count - 1);
+                avg += path[j];
                 count++;
             }
-            route.Add(avg / count);
+            result.Add(avg / count);
         }
     }
 
@@ -427,32 +565,15 @@ public class RideNavigator : MonoBehaviour
         }
     }
 
-    void LayArrows(Vector3 vehiclePos, Color colour)
+    // Lays the road arrows ahead of the player along the route (route.Project must run first).
+    void LayArrows(NavRoute route, Color colour)
     {
-        if (route.Count < 2) { SetArrowsVisible(0); return; }
-
-        // arc length of the point on the route closest to the vehicle
-        float startS = 0f, total = 0f, best = float.MaxValue;
-        for (int i = 0; i < route.Count - 1; i++)
-        {
-            Vector3 a = route[i], b = route[i + 1];
-            float len = FlatDistance(a, b);
-            Vector3 ab = b - a; ab.y = 0f;
-            Vector3 ap = vehiclePos - a; ap.y = 0f;
-            float t = len > 0.001f ? Mathf.Clamp01(Vector3.Dot(ap, ab) / (len * len)) : 0f;
-            float d = (ap - ab * t).magnitude;
-            if (d < best) { best = d; startS = total + len * t; }
-            total += len;
-        }
-        routeStartS = startS;
-        routeLength = total;
-
         int shown = 0;
-        float s = startS + firstArrowDistance;
-        while (shown < arrows.Count && s < total - 1f)
+        float s = route.startS + firstArrowDistance;
+        while (shown < arrows.Count && s < route.length - 1f)
         {
             Vector3 pos, dir;
-            SampleRoute(s, out pos, out dir);
+            route.Sample(s, out pos, out dir);
             Transform arrow = arrows[shown];
             if (!arrow.gameObject.activeSelf) arrow.gameObject.SetActive(true);
             arrow.position = pos + Vector3.up * 0.08f;
@@ -466,27 +587,6 @@ public class RideNavigator : MonoBehaviour
             s += arrowSpacing;
         }
         SetArrowsVisible(shown);
-    }
-
-    void SampleRoute(float s, out Vector3 pos, out Vector3 dir)
-    {
-        for (int i = 0; i < route.Count - 1; i++)
-        {
-            Vector3 a = route[i], b = route[i + 1];
-            float len = FlatDistance(a, b);
-            if (s <= len || i == route.Count - 2)
-            {
-                float t = len > 0.001f ? Mathf.Clamp01(s / len) : 0f;
-                pos = Vector3.Lerp(a, b, t);
-                dir = b - a;
-                dir.y = 0f;
-                dir.Normalize();
-                return;
-            }
-            s -= len;
-        }
-        pos = route[route.Count - 1];
-        dir = Vector3.forward;
     }
 
     void SetArrowsVisible(int count)
@@ -597,6 +697,77 @@ public class RideNavigator : MonoBehaviour
     static long Key(int x, int z)
     {
         return ((long)x << 32) ^ (uint)z;
+    }
+
+    // one planned road route: its points, its target, and where the player is along it
+    class NavRoute
+    {
+        public readonly List<Vector3> points = new List<Vector3>();
+        public Vector3 target;
+        public bool planned;
+        public float startS;  // distance along the route of the point closest to the player
+        public float length;  // total route length
+
+        // finds the point on the route closest to 'p' and stores its distance along the route
+        public void Project(Vector3 p)
+        {
+            float total = 0f, best = float.MaxValue;
+            startS = 0f;
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                Vector3 a = points[i], b = points[i + 1];
+                float len = FlatDistance(a, b);
+                Vector3 ab = b - a; ab.y = 0f;
+                Vector3 ap = p - a; ap.y = 0f;
+                float t = len > 0.001f ? Mathf.Clamp01(Vector3.Dot(ap, ab) / (len * len)) : 0f;
+                float d = (ap - ab * t).magnitude;
+                if (d < best) { best = d; startS = total + len * t; }
+                total += len;
+            }
+            length = total;
+        }
+
+        // position and flat direction of the route at distance 's' along it
+        public void Sample(float s, out Vector3 pos, out Vector3 dir)
+        {
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                Vector3 a = points[i], b = points[i + 1];
+                float len = FlatDistance(a, b);
+                if (s <= len || i == points.Count - 2)
+                {
+                    float t = len > 0.001f ? Mathf.Clamp01(s / len) : 0f;
+                    pos = Vector3.Lerp(a, b, t);
+                    dir = b - a;
+                    dir.y = 0f;
+                    dir.Normalize();
+                    return;
+                }
+                s -= len;
+            }
+            pos = points[points.Count - 1];
+            dir = Vector3.forward;
+        }
+
+        // Walks ahead from 'fromS' and returns the signed angle (+ = right) of the first point
+        // where the route has turned more than 'minAngle' from 'heading'; 0 if it never does.
+        public float NextBend(float fromS, Vector3 heading, float minAngle, out float atS)
+        {
+            const float step = 2f;
+            for (float s = fromS + step; s < length; s += step)
+            {
+                Vector3 pos, dir;
+                Sample(s, out pos, out dir);
+                float angle = Vector3.SignedAngle(heading, dir, Vector3.up);
+                if (Mathf.Abs(angle) > minAngle)
+                {
+                    atS = s;
+                    return angle;
+                }
+            }
+            atS = length;
+            return 0f;
+        }
     }
 
     // small binary min-heap for A*

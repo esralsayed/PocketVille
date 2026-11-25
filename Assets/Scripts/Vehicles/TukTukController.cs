@@ -34,6 +34,9 @@ public class TukTukController : MonoBehaviour
     [Tooltip("How quickly the yaw rate catches the stick, in degrees per second squared.")]
     [SerializeField] float steerResponse = 180f;
 
+    [Tooltip("How quickly a spin the driver is not asking for is stopped (for example after a bump), in degrees per second squared.")]
+    [SerializeField] float yawStopResponse = 1080f;
+
     [Tooltip("Forward speed where steering reaches full strength, in m/s.")]
     [SerializeField] float steerFullSpeed = 3.5f;
 
@@ -355,7 +358,15 @@ public class TukTukController : MonoBehaviour
         Vector3 angular = body.angularVelocity;
         Vector3 yaw = Vector3.Project(angular, Vector3.up);
         Vector3 tilt = angular - yaw;
-        float newYaw = Mathf.MoveTowards(yaw.y, desiredYaw, steerResponse * Mathf.Deg2Rad * deltaTime);
+        // Never yaw faster than full steering lock, and remove any spin the
+        // driver is not asking for (a knock from traffic or a pole) quickly,
+        // so a bump can no longer turn the tuk-tuk around.
+        float maxYaw = steerSpeed * Mathf.Deg2Rad;
+        float currentYaw = Mathf.Clamp(yaw.y, -maxYaw, maxYaw);
+        bool opposing = currentYaw * desiredYaw < 0f;
+        bool unwanted = Mathf.Abs(desiredYaw) < 0.01f || opposing || Mathf.Abs(currentYaw) > Mathf.Abs(desiredYaw);
+        float response = unwanted ? yawStopResponse : steerResponse;
+        float newYaw = Mathf.MoveTowards(currentYaw, desiredYaw, response * Mathf.Deg2Rad * deltaTime);
         body.angularVelocity = tilt + Vector3.up * newYaw;
     }
 
